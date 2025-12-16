@@ -2,6 +2,16 @@
 
 An open source macOS application to optimize and clean your Mac system, similar to "Clean My Mac" but completely free and open source.
 
+## ⚠️ Warning
+
+**This project is currently under active development and is NOT considered safe or fully tested.**
+
+- Use at your own risk
+- Always backup your important data before using
+- Test carefully in a safe environment
+- Report any issues you encounter
+- The application may contain bugs or unexpected behavior
+
 ## Features
 
 - **Safe Cleanup**: Scan and clean temporary files, cache, and system logs
@@ -76,6 +86,8 @@ Contributions are welcome! For more information, see [CONTRIBUTING.md](CONTRIBUT
 
 ## Notes
 
-- The app is under active development
+- **The app is under active development and is NOT production-ready**
+- **This software has NOT been thoroughly tested and may contain bugs**
+- **Use with caution and always backup your data before use**
 - All features are subject to change
-- Security and stability are priorities
+- Security and stability are priorities, but cannot be guaranteed at this stage
