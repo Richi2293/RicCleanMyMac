@@ -9,7 +9,6 @@ struct RicCleanMyMacApp: App {
             MainView()
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
         }
