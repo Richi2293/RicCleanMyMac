@@ -7,6 +7,8 @@ class CleanupService: ObservableObject {
     @Published var isScanning = false
     @Published var totalSize: Int64 = 0
     @Published var diskSpace: DiskSpace?
+    @Published var spaceUsageItems: [SpaceUsageItem] = []
+    @Published var isScanningSpaceUsage = false
     
     private let fileScanner = FileScanner()
     private let diskAnalyzer = DiskAnalyzer()
@@ -36,6 +38,7 @@ class CleanupService: ObservableObject {
     init() {
         Task {
             await updateDiskSpace()
+            await scanSpaceUsage()
         }
     }
     
@@ -91,6 +94,20 @@ class CleanupService: ObservableObject {
         let space = await diskAnalyzer.getDiskSpace()
         await MainActor.run {
             diskSpace = space
+        }
+    }
+    
+    /// Scan user directories for space usage
+    func scanSpaceUsage() async {
+        await MainActor.run {
+            isScanningSpaceUsage = true
+        }
+        
+        let items = await diskAnalyzer.scanUserDirectories()
+        
+        await MainActor.run {
+            spaceUsageItems = items
+            isScanningSpaceUsage = false
         }
     }
 }

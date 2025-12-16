@@ -4,48 +4,52 @@ struct DashboardView: View {
     @EnvironmentObject var cleanupService: CleanupService
     
     var body: some View {
-        VStack(spacing: 30) {
-            // Disk space information
-            if let diskSpace = cleanupService.diskSpace {
-                DiskSpaceCard(diskSpace: diskSpace)
-            }
-            
-            // Scan button
-            VStack(spacing: 16) {
-                Button(action: {
-                    Task {
-                        await cleanupService.scan()
-                    }
-                }) {
-                    HStack {
-                        if cleanupService.isScanning {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle())
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        Text(cleanupService.isScanning ? "Scanning..." : "Scan for Cleanup")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+        ScrollView {
+            VStack(spacing: 20) {
+                // Disk space information
+                if let diskSpace = cleanupService.diskSpace {
+                    DiskSpaceCard(diskSpace: diskSpace)
                 }
-                .disabled(cleanupService.isScanning)
                 
-                if cleanupService.totalSize > 0 {
-                    Text("Found \(ByteCountFormatter.string(fromByteCount: cleanupService.totalSize)) that can be cleaned")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                // Space usage by directory
+                SpaceUsageView()
+                    .environmentObject(cleanupService)
+                
+                // Scan button
+                VStack(spacing: 16) {
+                    Button(action: {
+                        Task {
+                            await cleanupService.scan()
+                        }
+                    }) {
+                        HStack {
+                            if cleanupService.isScanning {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle())
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            Text(cleanupService.isScanning ? "Scanning..." : "Scan for Cleanup")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    .disabled(cleanupService.isScanning)
+                    
+                    if cleanupService.totalSize > 0 {
+                        Text("Found \(ByteCountFormatter.string(fromByteCount: cleanupService.totalSize)) that can be cleaned")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .padding()
             }
             .padding()
-            
-            Spacer()
         }
-        .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
