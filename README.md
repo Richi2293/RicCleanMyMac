@@ -1,82 +1,81 @@
 # RicCleanMyMac
 
-Un'applicazione macOS open source per ottimizzare e pulire il sistema Mac, simile a "Clean My Mac" ma completamente gratuita e open source.
+An open source macOS application to optimize and clean your Mac system, similar to "Clean My Mac" but completely free and open source.
 
-## Caratteristiche
+## Features
 
-- **Pulizia Sicura**: Scansione e pulizia di file temporanei, cache e log di sistema
-- **Controllo Totale**: Nessuna eliminazione automatica - ogni operazione richiede conferma esplicita
-- **Architettura Leggera**: Nessun processo in background, chiusura completa quando l'app viene terminata
-- **Interfaccia Moderna**: UI moderna basata su SwiftUI con sidebar navigation
+- **Safe Cleanup**: Scan and clean temporary files, cache, and system logs
+- **Full Control**: No automatic deletion - every operation requires explicit confirmation
+- **Lightweight Architecture**: No background processes, complete shutdown when the app is terminated
+- **Modern Interface**: Modern UI based on SwiftUI with sidebar navigation
 
-## Requisiti
+## Requirements
 
-- macOS 12.0 (Monterey) o superiore
-- Xcode 14.0 o superiore (per compilare da sorgente)
+- macOS 12.0 (Monterey) or later
+- Xcode 14.0 or later (to build from source)
 
-## Installazione
+## Installation
 
-### Da Sorgente
+### From Source
 
-1. Clona il repository:
+1. Clone the repository:
 ```bash
 git clone https://github.com/tuousername/RicCleanMyMac.git
 cd RicCleanMyMac
 ```
 
-2. Apri il progetto in Xcode:
+2. Open the project in Xcode:
 ```bash
 open RicCleanMyMac.xcodeproj
 ```
 
-3. Seleziona lo schema "RicCleanMyMac" e premi ⌘R per compilare ed eseguire
+3. Select the "RicCleanMyMac" scheme and press ⌘R to build and run
 
-## Uso
+## Usage
 
-1. Avvia l'applicazione
-2. Clicca su "Scansione" nel dashboard per trovare file da pulire
-3. Seleziona gli elementi che vuoi eliminare
-4. Clicca su "Pulizia" e conferma l'operazione
-5. L'app mostrerà lo spazio liberato
+1. Launch the application
+2. Click "Scan" in the dashboard to find files to clean
+3. Select the items you want to delete
+4. Click "Cleanup" and confirm the operation
+5. The app will show the freed space
 
-## Sicurezza
+## Security
 
-- L'app **NON elimina** alcun file senza la tua conferma esplicita
-- Ogni operazione di pulizia richiede un dialog di conferma
-- Validazione rigorosa dei path per prevenire eliminazioni accidentali
-- Whitelist di directory sicure
+- The app **DOES NOT delete** any file without your explicit confirmation
+- Every cleanup operation requires a confirmation dialog
+- Strict path validation to prevent accidental deletions
+- Safe directory whitelist
 
-## Sviluppo
+## Development
 
-### Struttura Progetto
+### Project Structure
 
 ```
 RicCleanMyMac/
-├── App/              # Entry point e AppDelegate
-├── Views/            # Interfaccia SwiftUI
-├── Services/         # Logica di business
-├── Models/           # Modelli di dati
-└── Utilities/        # Funzioni di supporto
+├── App/              # Entry point and AppDelegate
+├── Views/            # SwiftUI interface
+├── Services/         # Business logic
+├── Models/           # Data models
+└── Utilities/        # Helper functions
 ```
 
-### Build per Release
+### Build for Release
 
-1. Seleziona lo schema "RicCleanMyMac"
+1. Select the "RicCleanMyMac" scheme
 2. Product → Scheme → Edit Scheme → Build Configuration: Release
 3. Product → Archive
-4. Esporta l'app dall'Organizer
+4. Export the app from the Organizer
 
-## Contribuire
+## Contributing
 
-I contributi sono benvenuti! Per maggiori informazioni, consulta [CONTRIBUTING.md](CONTRIBUTING.md) (da creare).
+Contributions are welcome! For more information, see [CONTRIBUTING.md](CONTRIBUTING.md) (to be created).
 
-## Licenza
+## License
 
-[Da definire: MIT, Apache 2.0, o GPL]
+[To be defined: MIT, Apache 2.0, or GPL]
 
-## Note
+## Notes
 
-- L'app è in fase di sviluppo attivo
-- Tutte le funzionalità sono soggette a modifiche
-- La sicurezza e la stabilità sono prioritarie
-
+- The app is under active development
+- All features are subject to change
+- Security and stability are priorities

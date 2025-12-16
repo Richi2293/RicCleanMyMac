@@ -1,47 +1,47 @@
-# Testing e Deployment - RicCleanMyMac
+# Testing and Deployment - RicCleanMyMac
 
-## Testing Durante lo Sviluppo
+## Testing During Development
 
 ### 1. Testing in Xcode
 
-#### Run e Debug
-- **Run (⌘R)**: Avvia l'app in modalità debug
-- **Test (⌘U)**: Esegue tutti gli unit test
-- **Debug Console**: Visualizza log e errori durante l'esecuzione
+#### Run and Debug
+- **Run (⌘R)**: Launches the app in debug mode
+- **Test (⌘U)**: Runs all unit tests
+- **Debug Console**: Displays logs and errors during execution
 
-#### Breakpoint e Debugging
-- Impostare breakpoint per debuggare il flusso di esecuzione
-- Utilizzare `print()` o `os_log` per logging durante lo sviluppo
-- Verificare che le operazioni filesystem funzionino correttamente
+#### Breakpoints and Debugging
+- Set breakpoints to debug execution flow
+- Use `print()` or `os_log` for logging during development
+- Verify that filesystem operations work correctly
 
-#### Testing Manuale
-1. **Test Scansione**:
-   - Avviare l'app
-   - Cliccare su "Scansione" nel dashboard
-   - Verificare che vengano trovati file temporanei, cache e log
-   - Verificare che le dimensioni siano calcolate correttamente
+#### Manual Testing
+1. **Scan Test**:
+   - Launch the app
+   - Click "Scan" in the dashboard
+   - Verify that temporary files, cache, and logs are found
+   - Verify that sizes are calculated correctly
 
-2. **Test Pulizia**:
-   - Dopo la scansione, selezionare alcuni elementi
-   - Cliccare su "Pulizia"
-   - Verificare che appaia il dialog di conferma
-   - Verificare che i file vengano eliminati solo dopo conferma
-   - Verificare che l'app si aggiorni correttamente dopo la pulizia
+2. **Cleanup Test**:
+   - After scanning, select some items
+   - Click "Cleanup"
+   - Verify that the confirmation dialog appears
+   - Verify that files are only deleted after confirmation
+   - Verify that the app updates correctly after cleanup
 
-3. **Test Sicurezza**:
-   - Verificare che non vengano eliminati file fuori dalle directory consentite
-   - Verificare che la whitelist funzioni correttamente
-   - Tentare di eliminare file di sistema critici (non dovrebbe essere possibile)
+3. **Security Test**:
+   - Verify that files outside allowed directories are not deleted
+   - Verify that the whitelist works correctly
+   - Attempt to delete critical system files (should not be possible)
 
-4. **Test Chiusura**:
-   - Avviare una scansione
-   - Chiudere l'app durante la scansione
-   - Verificare che tutti i processi terminino completamente
-   - Verificare con Activity Monitor che non ci siano processi residui
+4. **Shutdown Test**:
+   - Start a scan
+   - Close the app during scanning
+   - Verify that all processes terminate completely
+   - Verify with Activity Monitor that there are no leftover processes
 
 ### 2. Unit Testing
 
-#### Struttura Test
+#### Test Structure
 ```
 RicCleanMyMacTests/
 ├── FileScannerTests.swift
@@ -50,138 +50,138 @@ RicCleanMyMacTests/
 └── FileManagerExtensionsTests.swift
 ```
 
-#### Test da Implementare
+#### Tests to Implement
 
 **FileScannerTests**:
-- Test scansione directory esistente
-- Test scansione directory non esistente
-- Test calcolo dimensioni corretto
-- Test enumerazione file nascosti
+- Test scanning existing directory
+- Test scanning non-existent directory
+- Test correct size calculation
+- Test hidden file enumeration
 
 **CleanupServiceTests**:
-- Test validazione path (whitelist)
-- Test rifiuto eliminazione fuori whitelist
-- Test eliminazione corretta dopo conferma
-- Test gestione errori durante eliminazione
+- Test path validation (whitelist)
+- Test rejection of deletion outside whitelist
+- Test correct deletion after confirmation
+- Test error handling during deletion
 
 **DiskAnalyzerTests**:
-- Test calcolo spazio disco disponibile
-- Test formattazione dimensioni
+- Test available disk space calculation
+- Test size formatting
 
-### 3. Testing con Dati Realistici
+### 3. Testing with Realistic Data
 
-#### Preparazione Ambiente Test
-1. Creare directory di test con file temporanei simulati
-2. Utilizzare file di dimensioni note per verificare calcoli
-3. Testare con diverse dimensioni di cache e log
+#### Test Environment Preparation
+1. Create test directories with simulated temporary files
+2. Use files of known sizes to verify calculations
+3. Test with different cache and log sizes
 
-#### Test di Performance
-- Testare scansione di directory grandi (migliaia di file)
-- Verificare che l'UI rimanga responsiva durante scansioni lunghe
-- Testare memoria durante operazioni intensive
+#### Performance Testing
+- Test scanning large directories (thousands of files)
+- Verify that the UI remains responsive during long scans
+- Test memory during intensive operations
 
-### 4. Testing su Diversi macOS
+### 4. Testing on Different macOS Versions
 
-#### Versioni Supportate
+#### Supported Versions
 - macOS 12.0 (Monterey)
 - macOS 13.0 (Ventura)
 - macOS 14.0 (Sonoma)
-- macOS 15.0 (Sequoia) - se disponibile
+- macOS 15.0 (Sequoia) - if available
 
-#### Test Cross-Version
-- Verificare compatibilità SwiftUI su tutte le versioni
-- Testare permessi filesystem su diverse versioni
-- Verificare comportamento UI su diverse risoluzioni
+#### Cross-Version Testing
+- Verify SwiftUI compatibility on all versions
+- Test filesystem permissions on different versions
+- Verify UI behavior on different resolutions
 
-## Deployment e Distribuzione
+## Deployment and Distribution
 
-### 1. Build per Release
+### 1. Build for Release
 
-#### Configurazione Xcode
-1. **Selezionare Schema Release**:
+#### Xcode Configuration
+1. **Select Release Scheme**:
    - Product → Scheme → Edit Scheme
-   - Impostare Build Configuration su "Release"
+   - Set Build Configuration to "Release"
 
-2. **Ottimizzazioni**:
-   - Abilitare compiler optimizations
-   - Rimuovere debug symbols se necessario
-   - Verificare che non ci siano `print()` statements di debug
+2. **Optimizations**:
+   - Enable compiler optimizations
+   - Remove debug symbols if necessary
+   - Verify that there are no `print()` debug statements
 
-3. **Archivio**:
+3. **Archive**:
    - Product → Archive
-   - Attendere completamento build
-   - Xcode Organizer si aprirà automaticamente
+   - Wait for build completion
+   - Xcode Organizer will open automatically
 
-### 2. Code Signing e Notarizzazione
+### 2. Code Signing and Notarization
 
-#### Code Signing (Opzionale ma Consigliato)
-Per distribuire l'app fuori dall'App Store, è necessario firmare il codice:
+#### Code Signing (Optional but Recommended)
+To distribute the app outside the App Store, code signing is required:
 
 1. **Apple Developer Account**:
-   - Iscrizione Developer Program ($99/anno) per distribuzione fuori App Store
-   - Oppure Developer ID per distribuzione diretta
+   - Developer Program subscription ($99/year) for distribution outside App Store
+   - Or Developer ID for direct distribution
 
-2. **Configurazione Signing**:
+2. **Signing Configuration**:
    - Xcode → Target → Signing & Capabilities
-   - Selezionare team developer
-   - Xcode gestirà automaticamente il provisioning
+   - Select developer team
+   - Xcode will automatically handle provisioning
 
-3. **Notarizzazione**:
-   - Richiesta da macOS Catalina+ per app non da App Store
-   - Processo automatico tramite Xcode Organizer
-   - Verifica sicurezza da parte di Apple (24-48 ore)
+3. **Notarization**:
+   - Required by macOS Catalina+ for apps not from App Store
+   - Automatic process via Xcode Organizer
+   - Security verification by Apple (24-48 hours)
 
-#### Alternative per Open Source
-- **Notarizzazione Opzionale**: Gli utenti possono bypassare con `xattr -cr` se necessario
-- **Distribuzione Source Code**: Gli utenti possono compilare direttamente da Xcode
-- **GitHub Releases**: Distribuire `.zip` con istruzioni per compilazione
+#### Alternatives for Open Source
+- **Optional Notarization**: Users can bypass with `xattr -cr` if necessary
+- **Source Code Distribution**: Users can compile directly from Xcode
+- **GitHub Releases**: Distribute `.zip` with compilation instructions
 
-### 3. Metodi di Distribuzione
+### 3. Distribution Methods
 
-#### Opzione 1: GitHub Releases (Consigliato per Open Source)
+#### Option 1: GitHub Releases (Recommended for Open Source)
 
-**Vantaggi**:
-- Gratuito
-- Integrato con repository Git
-- Facile per utenti tecnici
-- Nessun costo aggiuntivo
+**Advantages**:
+- Free
+- Integrated with Git repository
+- Easy for technical users
+- No additional cost
 
-**Processo**:
-1. Creare release su GitHub:
+**Process**:
+1. Create release on GitHub:
    ```
    git tag v1.0.0
    git push origin v1.0.0
    ```
 2. GitHub → Releases → Draft new release
-3. Caricare `.zip` dell'app compilata
-4. Aggiungere changelog e istruzioni
+3. Upload compiled app `.zip`
+4. Add changelog and instructions
 
-**Formato Distribuzione**:
+**Distribution Format**:
 ```
 RicCleanMyMac-v1.0.0.zip
 ├── RicCleanMyMac.app
-└── README.txt (istruzioni installazione)
+└── README.txt (installation instructions)
 ```
 
-**Istruzioni per Utenti**:
-- Scaricare `.zip`
-- Estrarre `.app`
-- Spostare in `/Applications`
-- Prima esecuzione: click destro → Apri (per bypassare Gatekeeper)
+**User Instructions**:
+- Download `.zip`
+- Extract `.app`
+- Move to `/Applications`
+- First run: right-click → Open (to bypass Gatekeeper)
 
-#### Opzione 2: Homebrew Cask (Per Utenti Tecnici)
+#### Option 2: Homebrew Cask (For Technical Users)
 
-**Vantaggi**:
-- Installazione facile per utenti Homebrew
-- Aggiornamenti automatici
-- Standard per app macOS open source
+**Advantages**:
+- Easy installation for Homebrew users
+- Automatic updates
+- Standard for macOS open source apps
 
-**Processo**:
-1. Creare formula Homebrew Cask
-2. Aggiungere a `homebrew-cask` repository
-3. Mantenere aggiornata con nuove versioni
+**Process**:
+1. Create Homebrew Cask formula
+2. Add to `homebrew-cask` repository
+3. Keep updated with new versions
 
-**Formula Esempio**:
+**Example Formula**:
 ```ruby
 cask 'riccleanmymac' do
   version '1.0.0'
@@ -195,46 +195,46 @@ cask 'riccleanmymac' do
 end
 ```
 
-#### Opzione 3: Mac App Store (Futuro)
+#### Option 3: Mac App Store (Future)
 
-**Requisiti**:
-- Apple Developer Account ($99/anno)
-- Review process Apple
-- Conformità linee guida App Store
-- Sandboxing (potrebbe limitare accesso filesystem)
+**Requirements**:
+- Apple Developer Account ($99/year)
+- Apple review process
+- App Store guidelines compliance
+- Sandboxing (might limit filesystem access)
 
-**Vantaggi**:
-- Distribuzione ufficiale
-- Aggiornamenti automatici
-- Maggiore fiducia utenti
+**Advantages**:
+- Official distribution
+- Automatic updates
+- Greater user trust
 
-**Svantaggi**:
-- Review process lungo
-- Restrizioni sandbox
-- 30% commissione su vendite (non applicabile se gratuito)
+**Disadvantages**:
+- Long review process
+- Sandbox restrictions
+- 30% commission on sales (not applicable if free)
 
-### 4. Creazione DMG (Disk Image)
+### 4. Creating DMG (Disk Image)
 
-#### Per Distribuzione Professionale
+#### For Professional Distribution
 
-**Strumenti**:
-- `create-dmg` (tool CLI)
-- `DropDMG` (app GUI)
-- Script personalizzato
+**Tools**:
+- `create-dmg` (CLI tool)
+- `DropDMG` (GUI app)
+- Custom script
 
-**Struttura DMG**:
+**DMG Structure**:
 ```
 RicCleanMyMac.dmg
 └── RicCleanMyMac.app
     └── Applications (alias)
 ```
 
-**Processo con create-dmg**:
+**Process with create-dmg**:
 ```bash
-# Installare create-dmg
+# Install create-dmg
 brew install create-dmg
 
-# Creare DMG
+# Create DMG
 create-dmg \
   --volname "RicCleanMyMac" \
   --window-pos 200 120 \
@@ -247,11 +247,11 @@ create-dmg \
   "build/"
 ```
 
-### 5. CI/CD con GitHub Actions
+### 5. CI/CD with GitHub Actions
 
-#### Automatizzare Build e Release
+#### Automate Build and Release
 
-**Workflow GitHub Actions**:
+**GitHub Actions Workflow**:
 ```yaml
 name: Build and Release
 
@@ -278,7 +278,7 @@ jobs:
             -exportOptionsPlist ExportOptions.plist
       - name: Create DMG
         run: |
-          # Script per creare DMG
+          # Script to create DMG
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
@@ -288,8 +288,8 @@ jobs:
 ### 6. Versioning
 
 #### Semantic Versioning
-- **Major** (1.0.0): Cambiamenti incompatibili
-- **Minor** (0.1.0): Nuove funzionalità compatibili
+- **Major** (1.0.0): Incompatible changes
+- **Minor** (0.1.0): Compatible new features
 - **Patch** (0.0.1): Bug fixes
 
 #### Info.plist
@@ -300,84 +300,83 @@ jobs:
 <string>1</string>
 ```
 
-## Checklist Pre-Release
+## Pre-Release Checklist
 
-### Funzionalità
-- [ ] Tutti i test passano
-- [ ] Nessun bug critico conosciuto
-- [ ] UI testata su diverse risoluzioni
-- [ ] Performance accettabili
+### Functionality
+- [ ] All tests pass
+- [ ] No known critical bugs
+- [ ] UI tested on different resolutions
+- [ ] Acceptable performance
 
-### Sicurezza
-- [ ] Validazione path implementata
-- [ ] Whitelist directory funzionante
-- [ ] Conferma eliminazione sempre richiesta
-- [ ] Nessun file eliminato senza conferma
+### Security
+- [ ] Path validation implemented
+- [ ] Directory whitelist working
+- [ ] Deletion confirmation always required
+- [ ] No files deleted without confirmation
 
-### Architettura
-- [ ] Nessun processo in background
-- [ ] Chiusura completa verificata
-- [ ] Nessun daemon o agent
-- [ ] Memoria gestita correttamente
+### Architecture
+- [ ] No background processes
+- [ ] Complete shutdown verified
+- [ ] No daemon or agent
+- [ ] Memory managed correctly
 
-### Documentazione
-- [ ] README.md aggiornato
-- [ ] Changelog creato
-- [ ] Istruzioni installazione chiare
-- [ ] Screenshot o demo video (opzionale)
+### Documentation
+- [ ] README.md updated
+- [ ] Changelog created
+- [ ] Clear installation instructions
+- [ ] Screenshots or demo video (optional)
 
 ### Build
-- [ ] Build Release funzionante
-- [ ] App testata su macOS target
-- [ ] Dimensioni app ragionevoli
-- [ ] Icona app creata
+- [ ] Release build working
+- [ ] App tested on target macOS
+- [ ] Reasonable app size
+- [ ] App icon created
 
-## Suggerimenti per Distribuzione Open Source
+## Tips for Open Source Distribution
 
-### 1. README Completo
-- Descrizione chiara del progetto
-- Screenshot dell'app
-- Istruzioni installazione dettagliate
-- Requisiti di sistema
-- Come contribuire
+### 1. Complete README
+- Clear project description
+- App screenshots
+- Detailed installation instructions
+- System requirements
+- How to contribute
 
 ### 2. LICENSE File
-- Scegliere licenza appropriata (MIT, Apache 2.0, GPL)
-- Aggiungere file LICENSE nella root
+- Choose appropriate license (MIT, Apache 2.0, GPL)
+- Add LICENSE file in root
 
 ### 3. Contributing Guidelines
-- Creare CONTRIBUTING.md
-- Spiegare come contribuire
-- Linee guida per pull request
+- Create CONTRIBUTING.md
+- Explain how to contribute
+- Guidelines for pull requests
 
 ### 4. Issue Templates
-- Template per bug report
-- Template per feature request
-- Template per domande
+- Template for bug reports
+- Template for feature requests
+- Template for questions
 
 ### 5. Security Policy
-- Creare SECURITY.md
-- Spiegare come reportare vulnerabilità
-- Processo di disclosure responsabile
+- Create SECURITY.md
+- Explain how to report vulnerabilities
+- Responsible disclosure process
 
-## Raccomandazione Finale
+## Final Recommendation
 
-Per un progetto open source come RicCleanMyMac, suggerisco:
+For an open source project like RicCleanMyMac, I suggest:
 
-1. **Fase Iniziale (MVP)**:
-   - Distribuzione via GitHub Releases
-   - Build manuale per prime versioni
-   - Focus su funzionalità e stabilità
+1. **Initial Phase (MVP)**:
+   - Distribution via GitHub Releases
+   - Manual build for first versions
+   - Focus on functionality and stability
 
-2. **Fase di Crescita**:
-   - Automatizzare build con GitHub Actions
-   - Aggiungere Homebrew Cask per facilità installazione
-   - Creare DMG per distribuzione professionale
+2. **Growth Phase**:
+   - Automate build with GitHub Actions
+   - Add Homebrew Cask for easy installation
+   - Create DMG for professional distribution
 
-3. **Fase Maturità**:
-   - Considerare Mac App Store se necessario
-   - Implementare auto-update mechanism
-   - Espandere canali distribuzione
+3. **Maturity Phase**:
+   - Consider Mac App Store if necessary
+   - Implement auto-update mechanism
+   - Expand distribution channels
 
-**Approccio Consigliato**: Iniziare con GitHub Releases semplice, poi espandersi gradualmente in base alle necessità della community.
-
+**Recommended Approach**: Start with simple GitHub Releases, then gradually expand based on community needs.

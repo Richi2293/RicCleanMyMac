@@ -1,114 +1,113 @@
-# RicCleanMyMac - Idea del Progetto
+# RicCleanMyMac - Project Idea
 
-## Panoramica
+## Overview
 
-RicCleanMyMac è un'applicazione macOS open source progettata per ottimizzare e pulire il sistema Mac, simile al famoso "Clean My Mac" ma completamente gratuita e open source.
+RicCleanMyMac is an open source macOS application designed to optimize and clean your Mac system, similar to the famous "Clean My Mac" but completely free and open source.
 
-## Obiettivo
+## Objective
 
-L'obiettivo principale di RicCleanMyMac è fornire agli utenti Mac uno strumento potente e affidabile per:
-- Liberare spazio su disco
-- Migliorare le prestazioni del sistema
-- Mantenere il Mac pulito e organizzato
-- Monitorare l'utilizzo delle risorse di sistema
+The main objective of RicCleanMyMac is to provide Mac users with a powerful and reliable tool to:
+- Free up disk space
+- Improve system performance
+- Keep the Mac clean and organized
+- Monitor system resource usage
 
-## Caratteristiche Principali
+## Main Features
 
-### 1. Pulizia del Sistema
-- **File temporanei**: Rimozione automatica di file temporanei e cache non necessarie
-- **Log di sistema**: Pulizia dei file di log che occupano spazio
-- **Cache applicazioni**: Gestione e pulizia delle cache delle applicazioni
-- **Download**: Analisi e pulizia della cartella Download
-- **Cestino**: Svuotamento automatico del cestino
+### 1. System Cleanup
+- **Temporary files**: Automatic removal of unnecessary temporary files and cache
+- **System logs**: Cleanup of log files that take up space
+- **Application cache**: Management and cleanup of application cache
+- **Downloads**: Analysis and cleanup of the Downloads folder
+- **Trash**: Automatic emptying of the trash
 
-### 2. Analisi Disco
-- Visualizzazione dettagliata dello spazio utilizzato
-- Identificazione di file e cartelle di grandi dimensioni
-- Analisi per tipo di file
-- Grafici e visualizzazioni intuitive
+### 2. Disk Analysis
+- Detailed visualization of used space
+- Identification of large files and folders
+- Analysis by file type
+- Intuitive charts and visualizations
 
-### 3. Monitoraggio Sistema
-- Monitoraggio utilizzo RAM
-- Monitoraggio utilizzo CPU
-- Spazio disco disponibile in tempo reale
-- Statistiche di sistema
+### 3. System Monitoring
+- RAM usage monitoring
+- CPU usage monitoring
+- Real-time available disk space
+- System statistics
 
-### 4. Pulizia Avanzata
-- Rimozione sicura di applicazioni
-- Pulizia libreria foto (duplicati, cache)
-- Pulizia browser (cache, cookie, cronologia - opzionale)
-- Pulizia file di sistema non critici
+### 4. Advanced Cleanup
+- Safe removal of applications
+- Photo library cleanup (duplicates, cache)
+- Browser cleanup (cache, cookies, history - optional)
+- Cleanup of non-critical system files
 
-## Tecnologie
+## Technologies
 
-- **Swift**: Linguaggio di programmazione principale
-- **SwiftUI**: Framework per l'interfaccia utente moderna e reattiva
-- **Combine**: Gestione asincrona e reattiva dei dati
-- **Foundation**: Accesso al filesystem e operazioni di sistema
+- **Swift**: Main programming language
+- **SwiftUI**: Framework for modern and reactive user interface
+- **Combine**: Asynchronous and reactive data management
+- **Foundation**: Filesystem access and system operations
 
-## Architettura
+## Architecture
 
-Il progetto seguirà un'architettura modulare:
-- **Views**: Interfaccia utente SwiftUI
-- **Services**: Logica di business e servizi di pulizia
-- **Models**: Modelli di dati
-- **Utilities**: Funzioni di supporto e estensioni
+The project will follow a modular architecture:
+- **Views**: SwiftUI user interface
+- **Services**: Business logic and cleanup services
+- **Models**: Data models
+- **Utilities**: Helper functions and extensions
 
-## Principi di Sviluppo
+## Development Principles
 
-1. **Sicurezza**: Validazione rigorosa prima di qualsiasi operazione di eliminazione
-2. **Controllo Utente**: Nessuna eliminazione automatica - ogni operazione richiede azione esplicita e conferma dell'utente
-3. **Trasparenza**: Mostrare sempre all'utente cosa verrà eliminato prima della conferma
-4. **Architettura Leggera**: App on-demand senza processi in background - chiusura completa quando l'app viene terminata
-5. **Performance**: Operazioni asincrone per non bloccare l'interfaccia
-6. **Privacy**: Nessun dato viene inviato a server esterni
-7. **Open Source**: Codice completamente aperto e verificabile
+1. **Security**: Strict validation before any deletion operation
+2. **User Control**: No automatic deletion - every operation requires explicit user action and confirmation
+3. **Transparency**: Always show the user what will be deleted before confirmation
+4. **Lightweight Architecture**: On-demand app without background processes - complete shutdown when the app is terminated
+5. **Performance**: Asynchronous operations to avoid blocking the interface
+6. **Privacy**: No data is sent to external servers
+7. **Open Source**: Completely open and verifiable code
 
-## Requisiti Critici
+## Critical Requirements
 
-### Sicurezza e Controllo Utente
-- **Nessuna eliminazione automatica**: L'app NON elimina o modifica alcun file senza un'azione esplicita dell'utente
-- **Conferma obbligatoria**: Ogni operazione di pulizia richiede una conferma esplicita tramite dialog/alert
-- **Solo scansione di default**: Di default l'app scansiona e mostra risultati, senza eseguire alcuna azione
-- **Whitelist directory**: Validazione rigorosa dei path con lista directory sicure consentite
+### Security and User Control
+- **No automatic deletion**: The app DOES NOT delete or modify any file without explicit user action
+- **Mandatory confirmation**: Every cleanup operation requires explicit confirmation via dialog/alert
+- **Scan only by default**: By default the app scans and shows results, without performing any action
+- **Directory whitelist**: Strict path validation with list of allowed safe directories
 
-### Architettura Leggera
-- **Nessun processo in background**: Quando l'app viene chiusa, tutti i processi terminano completamente
-- **Nessun daemon o agent**: Non vengono utilizzati LaunchAgents o LaunchDaemons
-- **Nessun monitoraggio continuo**: L'app è completamente on-demand, senza polling o monitoraggio continuo
-- **Chiusura completa**: Implementazione di gestione ciclo vita per garantire terminazione completa senza residui
+### Lightweight Architecture
+- **No background processes**: When the app is closed, all processes terminate completely
+- **No daemon or agent**: LaunchAgents or LaunchDaemons are not used
+- **No continuous monitoring**: The app is completely on-demand, without polling or continuous monitoring
+- **Complete shutdown**: Lifecycle management implementation to ensure complete termination without leftovers
 
 ## Roadmap
 
-### Fase 1 - MVP (Minimum Viable Product)
-- [ ] Interfaccia base con dashboard
-- [ ] Scansione file temporanei e cache
-- [ ] Pulizia base del sistema
-- [ ] Visualizzazione spazio liberato
+### Phase 1 - MVP (Minimum Viable Product)
+- [ ] Basic interface with dashboard
+- [ ] Temporary files and cache scanning
+- [ ] Basic system cleanup
+- [ ] Freed space visualization
 
-### Fase 2 - Funzionalità Avanzate
-- [ ] Analisi dettagliata del disco
-- [ ] Rimozione applicazioni
-- [ ] Monitoraggio sistema in tempo reale
-- [ ] Pulizia browser
+### Phase 2 - Advanced Features
+- [ ] Detailed disk analysis
+- [ ] Application removal
+- [ ] Real-time system monitoring
+- [ ] Browser cleanup
 
-### Fase 3 - Ottimizzazioni
-- [ ] Pulizia automatica programmata
-- [ ] Notifiche intelligenti
-- [ ] Personalizzazione regole di pulizia
-- [ ] Export report di pulizia
+### Phase 3 - Optimizations
+- [ ] Scheduled automatic cleanup
+- [ ] Smart notifications
+- [ ] Cleanup rules customization
+- [ ] Cleanup report export
 
-## Licenza
+## License
 
-Il progetto sarà rilasciato con licenza open source (da definire: MIT, Apache 2.0, o GPL).
+The project will be released under an open source license (to be defined: MIT, Apache 2.0, or GPL).
 
-## Contribuire
+## Contributing
 
-RicCleanMyMac è un progetto open source e accoglie contributi dalla community. Per maggiori informazioni su come contribuire, consulta il file CONTRIBUTING.md (da creare).
+RicCleanMyMac is an open source project and welcomes contributions from the community. For more information on how to contribute, see the CONTRIBUTING.md file (to be created).
 
-## Note
+## Notes
 
-- Il progetto è attualmente in fase di sviluppo iniziale
-- Tutte le funzionalità sono soggette a modifiche durante lo sviluppo
-- La sicurezza e la stabilità sono prioritarie rispetto alle nuove funzionalità
-
+- The project is currently in initial development phase
+- All features are subject to change during development
+- Security and stability are priorities over new features
