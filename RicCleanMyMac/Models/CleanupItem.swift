@@ -30,7 +30,7 @@ enum CleanupType: String, CaseIterable {
         case .logs:
             return "doc.text.fill"
         case .temp:
-            return "trash.fill"
+            return "clock.arrow.circlepath"
         case .downloads:
             return "arrow.down.circle.fill"
         case .trash:

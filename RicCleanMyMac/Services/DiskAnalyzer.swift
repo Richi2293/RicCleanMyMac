@@ -56,7 +56,7 @@ class DiskAnalyzer {
                 ("Movies", homeURL.appendingPathComponent("Movies")),
                 ("Music", homeURL.appendingPathComponent("Music")),
                 ("Pictures", homeURL.appendingPathComponent("Pictures")),
-                ("Applications", homeURL.appendingPathComponent("Applications"))
+                ("Applications", URL(fileURLWithPath: "/Applications"))
             ]
             
             // Scan each directory

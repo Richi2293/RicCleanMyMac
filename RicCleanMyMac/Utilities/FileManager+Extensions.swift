@@ -59,15 +59,15 @@ extension FileManager {
     ///   - allowedDirectories: List of allowed directory paths
     /// - Returns: True if path is within allowed directories, false otherwise
     func isPathSafe(_ path: String, within allowedDirectories: [String]) -> Bool {
-        let pathURL = URL(fileURLWithPath: path)
-        
+        let normalizedPath = URL(fileURLWithPath: path).standardized.path
+
         for allowedDir in allowedDirectories {
-            let allowedURL = URL(fileURLWithPath: allowedDir)
-            if pathURL.path.hasPrefix(allowedURL.path) {
+            let normalizedAllowed = URL(fileURLWithPath: allowedDir).standardized.path
+            if normalizedPath == normalizedAllowed || normalizedPath.hasPrefix(normalizedAllowed + "/") {
                 return true
             }
         }
-        
+
         return false
     }
 }

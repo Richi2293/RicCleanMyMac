@@ -31,7 +31,12 @@ class CleanupService: ObservableObject {
         
         // Temporary directory
         directories.append(FileManager.default.temporaryDirectory.path)
-        
+
+        // Downloads and Trash
+        let homeURL = URL(fileURLWithPath: NSHomeDirectory())
+        directories.append(homeURL.appendingPathComponent("Downloads").path)
+        directories.append(homeURL.appendingPathComponent(".Trash").path)
+
         return directories
     }()
     
