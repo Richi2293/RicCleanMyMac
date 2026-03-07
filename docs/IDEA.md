@@ -100,11 +100,11 @@ The project will follow a modular architecture:
 
 ## License
 
-The project will be released under an open source license (to be defined: MIT, Apache 2.0, or GPL).
+The project is released under the [MIT License](../LICENSE).
 
 ## Contributing
 
-RicCleanMyMac is an open source project and welcomes contributions from the community. For more information on how to contribute, see the CONTRIBUTING.md file (to be created).
+RicCleanMyMac is an open source project and welcomes contributions from the community. For more information on how to contribute, see the [CONTRIBUTING.md](../CONTRIBUTING.md) file.
 
 ## Notes
 

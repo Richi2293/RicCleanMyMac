@@ -85,14 +85,16 @@ RicCleanMyMac
 │   ├── MainView.swift
 │   ├── DashboardView.swift
 │   ├── CleanupView.swift
-│   └── ConfirmationDialog.swift
+│   ├── ConfirmationDialog.swift
+│   └── SpaceUsageView.swift
 ├── Services
 │   ├── CleanupService.swift
 │   ├── FileScanner.swift
 │   └── DiskAnalyzer.swift
 ├── Models
 │   ├── CleanupItem.swift
-│   └── DiskSpace.swift
+│   ├── DiskSpace.swift
+│   └── SpaceUsageItem.swift
 ├── Utilities
 │   ├── FileManager+Extensions.swift
 │   └── ByteCountFormatter+Extensions.swift

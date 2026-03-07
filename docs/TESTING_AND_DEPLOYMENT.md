@@ -187,9 +187,9 @@ cask 'riccleanmymac' do
   version '1.0.0'
   sha256 '...'
   
-  url "https://github.com/tuousername/RicCleanMyMac/releases/download/v#{version}/RicCleanMyMac-#{version}.zip"
+  url "https://github.com/Richi2293/RicCleanMyMac/releases/download/v#{version}/RicCleanMyMac-#{version}.zip"
   name 'RicCleanMyMac'
-  homepage 'https://github.com/tuousername/RicCleanMyMac'
+  homepage 'https://github.com/Richi2293/RicCleanMyMac'
   
   app 'RicCleanMyMac.app'
 end
