@@ -79,7 +79,7 @@ enum SunburstLayout {
                 let otherSweep = Angle.degrees(sweep.degrees * Double(otherSize) / Double(node.size))
                 if otherSweep >= minSweep {
                     segments.append(SunburstSegment(
-                        node: FileNode(name: "Other", path: "", size: otherSize, isDirectory: false),
+                        node: FileNode(name: "Other", size: otherSize, isDirectory: false),
                         depth: depth,
                         startAngle: currentAngle,
                         endAngle: currentAngle + otherSweep,
@@ -172,7 +172,7 @@ struct SunburstChartView: View {
                         hoveredSegment = isHovered ? segment.id : nil
                     }
                     .onTapGesture {
-                        if segment.node.isDirectory && !segment.node.path.isEmpty {
+                        if segment.node.isDirectory {
                             onNavigate(segment.node)
                         }
                     }

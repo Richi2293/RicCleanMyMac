@@ -3,7 +3,6 @@ import Foundation
 final class FileNode: Identifiable {
     let id = UUID()
     let name: String
-    let path: String
     var size: Int64
     let isDirectory: Bool
     var accessDenied: Bool
@@ -21,9 +20,19 @@ final class FileNode: Identifiable {
         return fileIcon(for: name)
     }
 
-    init(name: String, path: String, size: Int64, isDirectory: Bool, accessDenied: Bool = false) {
+    /// Reconstructs the absolute path by walking up the parent chain.
+    /// Root node's name must be the absolute root path (e.g. "/").
+    /// Synthetic nodes with no parent (e.g. "Other" aggregates) return their name only.
+    var path: String {
+        guard let parent else { return name }
+        if parent.path.hasSuffix("/") {
+            return parent.path + name
+        }
+        return parent.path + "/" + name
+    }
+
+    init(name: String, size: Int64, isDirectory: Bool, accessDenied: Bool = false) {
         self.name = name
-        self.path = path
         self.size = size
         self.isDirectory = isDirectory
         self.accessDenied = accessDenied
@@ -93,14 +102,13 @@ extension FileNode: Hashable {
 
 extension FileNode: Codable {
     enum CodingKeys: String, CodingKey {
-        case name, path, size, isDirectory, accessDenied, children
+        case name, size, isDirectory, accessDenied, children
     }
 
     convenience init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             name: try container.decode(String.self, forKey: .name),
-            path: try container.decode(String.self, forKey: .path),
             size: try container.decode(Int64.self, forKey: .size),
             isDirectory: try container.decode(Bool.self, forKey: .isDirectory),
             accessDenied: try container.decode(Bool.self, forKey: .accessDenied)
@@ -111,14 +119,14 @@ extension FileNode: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(name, forKey: .name)
-        try container.encode(path, forKey: .path)
         try container.encode(size, forKey: .size)
         try container.encode(isDirectory, forKey: .isDirectory)
         try container.encode(accessDenied, forKey: .accessDenied)
         try container.encodeIfPresent(children, forKey: .children)
     }
 
-    /// Rebuild weak parent references after decoding from cache
+    /// Rebuild weak parent references after decoding from cache.
+    /// Required for correct `path` computation (which walks the parent chain).
     func rebuildParentReferences() {
         guard let children else { return }
         for child in children {
