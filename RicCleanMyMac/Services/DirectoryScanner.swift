@@ -57,12 +57,35 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
-    /// Load cached scan result if available
+    @Published var isLoadingCache = false
+
+    /// Whether a cached scan exists on disk
+    var hasCachedResult: Bool {
+        guard let cacheURL else { return false }
+        return fileManager.fileExists(atPath: cacheURL.path)
+    }
+
+    /// Load cached scan result asynchronously (off main thread)
     func loadCachedResult() {
-        guard scanResult == nil, let result = loadFromDisk() else { return }
-        result.root.rebuildParentReferences()
-        scanResult = result
-        currentNode = result.root
+        guard scanResult == nil, !isLoadingCache else { return }
+        isLoadingCache = true
+
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { [weak self] () -> DirectoryScanResult? in
+                guard let self else { return nil }
+                guard let loaded = self.loadFromDisk() else { return nil }
+                loaded.root.rebuildParentReferences()
+                return loaded
+            }.value
+
+            await MainActor.run { [weak self] in
+                if let result {
+                    self?.scanResult = result
+                    self?.currentNode = result.root
+                }
+                self?.isLoadingCache = false
+            }
+        }
     }
 
     func cancel() {

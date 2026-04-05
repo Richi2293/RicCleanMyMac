@@ -14,7 +14,9 @@ struct DiskAnalyzerView: View {
             toolbar
             Divider()
 
-            if scanner.isScanning {
+            if scanner.isLoadingCache {
+                loadingCacheView
+            } else if scanner.isScanning {
                 scanningView
             } else if let currentNode = scanner.currentNode {
                 BreadcrumbBar(path: scanner.breadcrumbPath) { node in
@@ -34,9 +36,10 @@ struct DiskAnalyzerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            if scanner.scanResult == nil && !scanner.isScanning {
-                scanner.loadCachedResult()
-                if scanner.scanResult == nil {
+            if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache {
+                if scanner.hasCachedResult {
+                    scanner.loadCachedResult()
+                } else {
                     scanner.scan(rootPath: "/")
                 }
             }
@@ -123,7 +126,20 @@ struct DiskAnalyzerView: View {
         }
     }
 
-    // MARK: - Scanning state
+    // MARK: - Loading states
+
+    private var loadingCacheView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.2)
+            Text("Loading previous scan...")
+                .font(.headline)
+            Text("This will only take a moment")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var scanningView: some View {
         VStack(spacing: 16) {
