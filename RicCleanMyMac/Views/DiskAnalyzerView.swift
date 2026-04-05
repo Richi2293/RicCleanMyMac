@@ -98,7 +98,7 @@ struct DiskAnalyzerView: View {
                     Text("Scanned: \(result.formattedScanDate)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("(\(result.totalFiles) files, \(result.totalDirectories) folders)")
+                    Text("(\(result.totalFiles) files, \(result.totalDirectories) folders, \(result.formattedDuration))")
                         .font(.caption)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
