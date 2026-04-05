@@ -33,6 +33,11 @@ struct DiskAnalyzerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            if scanner.scanResult == nil && !scanner.isScanning {
+                scanner.scan(rootPath: "/")
+            }
+        }
         .sheet(isPresented: $showConfirmation) {
             bulkDeleteSheet
         }
@@ -45,24 +50,9 @@ struct DiskAnalyzerView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            Button {
-                let panel = NSOpenPanel()
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = false
-                panel.allowsMultipleSelection = false
-                panel.message = "Choose a folder to analyze"
-                if panel.runModal() == .OK, let url = panel.url {
-                    scanner.scan(rootPath: url.path)
-                }
-            } label: {
-                Label("Choose Folder...", systemImage: "folder.badge.plus")
-            }
-
             if scanner.scanResult != nil {
                 Button {
-                    if let rootPath = scanner.scanResult?.root.path {
-                        scanner.scan(rootPath: rootPath)
-                    }
+                    scanner.scan(rootPath: "/")
                 } label: {
                     Label("Re-scan", systemImage: "arrow.clockwise")
                 }
@@ -162,7 +152,7 @@ struct DiskAnalyzerView: View {
             Text("Disk Analyzer")
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("Choose a folder to analyze its space usage.")
+            Text("Preparing disk analysis...")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
