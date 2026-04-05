@@ -74,7 +74,10 @@ final class DirectoryScanner: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { [weak self] () -> DirectoryScanResult? in
                 guard let self else { return nil }
                 guard let loaded = self.loadFromDisk() else { return nil }
+                let t0 = CFAbsoluteTimeGetCurrent()
                 loaded.root.rebuildParentReferences()
+                let t1 = CFAbsoluteTimeGetCurrent()
+                logger.info("rebuildParentReferences: \(String(format: "%.2f", t1 - t0))s")
                 return loaded
             }.value
 
@@ -305,11 +308,27 @@ final class DirectoryScanner: ObservableObject {
         guard let cacheURL, fileManager.fileExists(atPath: cacheURL.path) else { return nil }
 
         do {
-            let compressed = try Data(contentsOf: cacheURL)
-            let data = try (compressed as NSData).decompressed(using: .lzfse) as Data
-            let result = try PropertyListDecoder().decode(DirectoryScanResult.self, from: data)
+            var t0 = CFAbsoluteTimeGetCurrent()
 
-            logger.info("Loaded scan cache from \(result.formattedScanDate)")
+            let compressed = try Data(contentsOf: cacheURL)
+            let t1 = CFAbsoluteTimeGetCurrent()
+
+            let data = try (compressed as NSData).decompressed(using: .lzfse) as Data
+            let t2 = CFAbsoluteTimeGetCurrent()
+
+            let result = try PropertyListDecoder().decode(DirectoryScanResult.self, from: data)
+            let t3 = CFAbsoluteTimeGetCurrent()
+
+            logger.info("""
+                Cache load timing — \
+                read: \(String(format: "%.2f", t1 - t0))s, \
+                decompress: \(String(format: "%.2f", t2 - t1))s, \
+                decode: \(String(format: "%.2f", t3 - t2))s, \
+                compressed: \(compressed.count) bytes, \
+                decompressed: \(data.count) bytes, \
+                files: \(result.totalFiles), \
+                folders: \(result.totalDirectories)
+                """)
             return result
         } catch {
             logger.error("Failed to load scan cache: \(error.localizedDescription, privacy: .public)")
