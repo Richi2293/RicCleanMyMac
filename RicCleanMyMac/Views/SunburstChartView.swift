@@ -127,6 +127,7 @@ struct SunburstChartView: View {
     let onNavigate: (FileNode) -> Void
 
     @State private var hoveredSegment: UUID?
+    @State private var segments: [SunburstSegment] = []
 
     private let ringWidth: CGFloat = 36
     private let centerRadius: CGFloat = 50
@@ -134,7 +135,6 @@ struct SunburstChartView: View {
     var body: some View {
         GeometryReader { geo in
             let size = min(geo.size.width, geo.size.height)
-            let segments = SunburstLayout.buildSegments(from: rootNode)
 
             ZStack {
                 VStack(spacing: 2) {
@@ -183,6 +183,12 @@ struct SunburstChartView: View {
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
         .padding()
+        .onAppear {
+            segments = SunburstLayout.buildSegments(from: rootNode)
+        }
+        .onChange(of: rootNode) { newNode in
+            segments = SunburstLayout.buildSegments(from: newNode)
+        }
     }
 
     private func tooltipText(for segment: SunburstSegment) -> String {
