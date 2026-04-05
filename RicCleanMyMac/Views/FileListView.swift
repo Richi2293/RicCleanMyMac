@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FileListView: View {
     let children: [FileNode]
-    @Binding var selectedItems: Set<UUID>
+    @Binding var selectedItems: Set<ObjectIdentifier>
     let isDeletable: (FileNode) -> Bool
     let onNavigate: (FileNode) -> Void
     let onDelete: (FileNode) -> Void

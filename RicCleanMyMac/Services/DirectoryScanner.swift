@@ -9,7 +9,7 @@ final class DirectoryScanner: ObservableObject {
     @Published var progress = ScanProgress(filesScanned: 0, currentPath: "")
     @Published var scanResult: DirectoryScanResult?
     @Published var currentNode: FileNode?
-    @Published var selectedItems: Set<UUID> = []
+    @Published var selectedItems: Set<ObjectIdentifier> = []
     @Published var deleteMode: DeleteMode = .trash
 
     private let fileManager = FileManager.default
