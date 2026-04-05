@@ -1,7 +1,7 @@
 import Foundation
 
 final class FileNode: Identifiable {
-    let id = UUID()
+    var id: ObjectIdentifier { ObjectIdentifier(self) }
     let name: String
     var size: Int64
     let isDirectory: Bool
@@ -56,7 +56,7 @@ final class FileNode: Identifiable {
         parent?.recalculateSizeToRoot()
     }
 
-    func findNodes(withIDs ids: Set<UUID>) -> [FileNode] {
+    func findNodes(withIDs ids: Set<ObjectIdentifier>) -> [FileNode] {
         var result: [FileNode] = []
         if ids.contains(id) { result.append(self) }
         if let children {
