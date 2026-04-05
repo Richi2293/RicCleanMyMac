@@ -1,6 +1,6 @@
 import Foundation
 
-struct DirectoryScanResult: Codable {
+struct DirectoryScanResult {
     let root: FileNode
     let totalSize: Int64
     let totalFiles: Int
