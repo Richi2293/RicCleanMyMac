@@ -112,7 +112,7 @@ final class DirectoryScanner: ObservableObject {
                     if scannedCount % 1000 == 0 {
                         let count = scannedCount
                         let currentPath = url.lastPathComponent
-                        DispatchQueue.main.async { [weak self] in
+                        Task { @MainActor [weak self] in
                             self?.progress = ScanProgress(filesScanned: count, currentPath: currentPath)
                         }
                     }
@@ -195,6 +195,12 @@ final class DirectoryScanner: ObservableObject {
         for node in nodes {
             guard isNodeDeletable(node) else {
                 logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
+                failedCount += 1
+                continue
+            }
+
+            guard fileManager.fileExists(atPath: node.path) else {
+                logger.info("Item no longer exists, skipping: \(node.path, privacy: .public)")
                 failedCount += 1
                 continue
             }

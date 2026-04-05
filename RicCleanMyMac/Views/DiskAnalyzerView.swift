@@ -253,6 +253,15 @@ struct DiskAnalyzerView: View {
             Text("Freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            Button {
+                withAnimation { deletionResult = nil }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
         }
     }
 
