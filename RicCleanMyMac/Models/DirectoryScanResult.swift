@@ -14,4 +14,13 @@ struct DirectoryScanResult: Codable {
         formatter.timeStyle = .short
         return formatter.string(from: scanDate)
     }
+
+    var formattedDuration: String {
+        let minutes = Int(scanDuration) / 60
+        let seconds = Int(scanDuration) % 60
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        return "\(seconds)s"
+    }
 }
