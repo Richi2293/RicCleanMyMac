@@ -14,11 +14,15 @@ struct SunburstSegment: Identifiable {
 // MARK: - Layout
 
 enum SunburstLayout {
+    /// Maximum children to show per node before aggregating into "Other"
+    private static let maxChildrenPerNode = 10
+
     static func buildSegments(from root: FileNode, maxDepth: Int = 3) -> [SunburstSegment] {
         guard let children = root.children, root.size > 0 else { return [] }
 
         var segments: [SunburstSegment] = []
-        let palette = generatePalette(count: min(children.count, 12))
+        let visibleChildren = Array(children.prefix(min(children.count, maxChildrenPerNode)))
+        let palette = generatePalette(count: min(visibleChildren.count, 12))
 
         func traverse(node: FileNode, depth: Int, startAngle: Angle, sweep: Angle, color: Color) {
             guard depth <= maxDepth,
@@ -29,7 +33,12 @@ enum SunburstLayout {
             var currentAngle = startAngle
             var otherSize: Int64 = 0
 
-            for (index, child) in children.enumerated() {
+            // Children are already sorted by size descending — take only the top N
+            let topChildren = Array(children.prefix(maxChildrenPerNode))
+            let remainingSize = children.dropFirst(maxChildrenPerNode).reduce(Int64(0)) { $0 + $1.size }
+            otherSize = remainingSize
+
+            for (index, child) in topChildren.enumerated() {
                 let ratio = Double(child.size) / Double(node.size)
                 let childSweep = Angle.degrees(sweep.degrees * ratio)
 
