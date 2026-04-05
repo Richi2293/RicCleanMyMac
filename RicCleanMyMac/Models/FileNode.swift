@@ -88,3 +88,42 @@ extension FileNode: Hashable {
         hasher.combine(id)
     }
 }
+
+// MARK: - Codable
+
+extension FileNode: Codable {
+    enum CodingKeys: String, CodingKey {
+        case name, path, size, isDirectory, accessDenied, children
+    }
+
+    convenience init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decode(String.self, forKey: .name),
+            path: try container.decode(String.self, forKey: .path),
+            size: try container.decode(Int64.self, forKey: .size),
+            isDirectory: try container.decode(Bool.self, forKey: .isDirectory),
+            accessDenied: try container.decode(Bool.self, forKey: .accessDenied)
+        )
+        self.children = try container.decodeIfPresent([FileNode].self, forKey: .children)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(path, forKey: .path)
+        try container.encode(size, forKey: .size)
+        try container.encode(isDirectory, forKey: .isDirectory)
+        try container.encode(accessDenied, forKey: .accessDenied)
+        try container.encodeIfPresent(children, forKey: .children)
+    }
+
+    /// Rebuild weak parent references after decoding from cache
+    func rebuildParentReferences() {
+        guard let children else { return }
+        for child in children {
+            child.parent = self
+            child.rebuildParentReferences()
+        }
+    }
+}

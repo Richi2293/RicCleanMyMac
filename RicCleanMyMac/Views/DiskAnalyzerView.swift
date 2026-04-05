@@ -35,7 +35,10 @@ struct DiskAnalyzerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if scanner.scanResult == nil && !scanner.isScanning {
-                scanner.scan(rootPath: "/")
+                scanner.loadCachedResult()
+                if scanner.scanResult == nil {
+                    scanner.scan(rootPath: "/")
+                }
             }
         }
         .sheet(isPresented: $showConfirmation) {
@@ -86,12 +89,15 @@ struct DiskAnalyzerView: View {
         Group {
             if let result = scanner.scanResult {
                 HStack(spacing: 8) {
-                    Text("\(result.totalFiles) files, \(result.totalDirectories) folders")
+                    Image(systemName: "clock")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("Scanned in \(String(format: "%.1fs", result.scanDuration))")
+                    Text("Scanned: \(result.formattedScanDate)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    Text("(\(result.totalFiles) files, \(result.totalDirectories) folders)")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.7))
                 }
             }
         }
