@@ -15,6 +15,12 @@ final class DirectoryScanner: ObservableObject {
     private let fileManager = FileManager.default
     private var scanTask: Task<Void, Never>?
 
+    private var cacheURL: URL? {
+        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("RicCleanMyMac")
+            .appendingPathComponent("scan-cache.dat")
+    }
+
     /// Protected system paths that cannot be deleted
     private let protectedPrefixes: [String] = [
         "/System", "/usr", "/bin", "/sbin", "/private", "/Library"
@@ -39,12 +45,24 @@ final class DirectoryScanner: ObservableObject {
 
             guard !Task.isCancelled else { return }
 
+            if let result {
+                self.saveToDisk(result)
+            }
+
             await MainActor.run { [weak self] in
                 self?.scanResult = result
                 self?.currentNode = result?.root
                 self?.isScanning = false
             }
         }
+    }
+
+    /// Load cached scan result if available
+    func loadCachedResult() {
+        guard scanResult == nil, let result = loadFromDisk() else { return }
+        result.root.rebuildParentReferences()
+        scanResult = result
+        currentNode = result.root
     }
 
     func cancel() {
@@ -133,7 +151,8 @@ final class DirectoryScanner: ObservableObject {
                 totalSize: root.size,
                 totalFiles: filesCount,
                 totalDirectories: directoriesCount,
-                scanDuration: Date().timeIntervalSince(startTime)
+                scanDuration: Date().timeIntervalSince(startTime),
+                scanDate: Date()
             )
         }.value
     }
@@ -235,5 +254,41 @@ final class DirectoryScanner: ObservableObject {
             }
         }
         return false
+    }
+
+    // MARK: - Persistence
+
+    private func saveToDisk(_ result: DirectoryScanResult) {
+        guard let cacheURL else { return }
+
+        do {
+            let directory = cacheURL.deletingLastPathComponent()
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+            let data = try JSONEncoder().encode(result)
+            let compressed = try (data as NSData).compressed(using: .lzfse) as Data
+            try compressed.write(to: cacheURL, options: .atomic)
+
+            logger.info("Saved scan cache (\(compressed.count) bytes compressed)")
+        } catch {
+            logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func loadFromDisk() -> DirectoryScanResult? {
+        guard let cacheURL, fileManager.fileExists(atPath: cacheURL.path) else { return nil }
+
+        do {
+            let compressed = try Data(contentsOf: cacheURL)
+            let data = try (compressed as NSData).decompressed(using: .lzfse) as Data
+            let result = try JSONDecoder().decode(DirectoryScanResult.self, from: data)
+
+            logger.info("Loaded scan cache from \(result.formattedScanDate)")
+            return result
+        } catch {
+            logger.error("Failed to load scan cache: \(error.localizedDescription, privacy: .public)")
+            try? fileManager.removeItem(at: cacheURL)
+            return nil
+        }
     }
 }
