@@ -1,11 +1,8 @@
 import Foundation
 import Combine
+import os
 
-/// Result of a cleanup operation
-struct CleanupResult {
-    let successCount: Int
-    let freedSize: Int64
-}
+private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac", category: "CleanupService")
 
 /// Main service for orchestrating cleanup operations
 class CleanupService: ObservableObject {
@@ -21,7 +18,7 @@ class CleanupService: ObservableObject {
     private let diskAnalyzer = DiskAnalyzer()
     private let fileManager = FileManager.default
 
-    // Whitelist of safe directories that can be cleaned
+    /// Only items within these directories can be deleted
     private let allowedDirectories: [String] = {
         var directories: [String] = []
 
@@ -50,7 +47,7 @@ class CleanupService: ObservableObject {
         }
     }
 
-    /// Scan for cleanup items (read-only operation)
+    /// Scan for cleanup items (read-only on the filesystem; updates published state)
     func scan() async {
         await MainActor.run {
             isScanning = true
@@ -59,7 +56,7 @@ class CleanupService: ObservableObject {
             scanProgressLabel = ""
         }
 
-        let items = await fileScanner.scanForCleanupItems { [weak self] label in
+        let items = await fileScanner.scanForCleanupItems { @Sendable [weak self] label in
             Task { @MainActor [weak self] in
                 self?.scanProgressLabel = label
             }
@@ -77,30 +74,34 @@ class CleanupService: ObservableObject {
         await updateDiskSpace()
     }
 
-    /// Clean up selected items (only after user confirmation)
+    /// Clean up selected items, skipping unsafe paths instead of aborting the whole operation
     /// - Parameter items: Array of CleanupItem to clean up
-    /// - Returns: CleanupResult with success count and freed size, or nil if validation failed
-    func cleanup(items: [CleanupItem]) async -> CleanupResult? {
-        for item in items {
-            guard fileManager.isPathSafe(item.path, within: allowedDirectories) else {
-                print("Error: Path \(item.path) is not in allowed directories")
-                return nil
-            }
-        }
-
+    /// - Returns: CleanupResult with success/failure counts and freed size
+    func cleanup(items: [CleanupItem]) async -> CleanupResult {
         var successCount = 0
+        var failedCount = 0
         var freedSize: Int64 = 0
 
         for item in items {
-            if fileManager.safeRemoveItem(atPath: item.path) {
+            guard fileManager.isPathSafe(item.path, within: allowedDirectories) else {
+                logger.warning("Skipped unsafe path: \(item.path, privacy: .public)")
+                failedCount += 1
+                continue
+            }
+
+            do {
+                try fileManager.safeRemoveItem(atPath: item.path)
                 successCount += 1
                 freedSize += item.size
+            } catch {
+                logger.error("Failed to delete \(item.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                failedCount += 1
             }
         }
 
         await scan()
 
-        return CleanupResult(successCount: successCount, freedSize: freedSize)
+        return CleanupResult(successCount: successCount, failedCount: failedCount, freedSize: freedSize)
     }
 
     /// Update disk space information

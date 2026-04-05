@@ -7,7 +7,7 @@ class FileScanner {
     /// Scan for cleanup items in standard system directories
     /// - Parameter onProgress: Optional callback invoked before each directory scan with a status label
     /// - Returns: Array of CleanupItem found during scan
-    func scanForCleanupItems(onProgress: ((String) -> Void)? = nil) async -> [CleanupItem] {
+    func scanForCleanupItems(onProgress: (@Sendable (String) -> Void)? = nil) async -> [CleanupItem] {
         var items: [CleanupItem] = []
 
         onProgress?("Scanning Cache...")

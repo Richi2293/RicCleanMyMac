@@ -8,6 +8,10 @@ struct DashboardView: View {
             VStack(spacing: 20) {
                 if let diskSpace = cleanupService.diskSpace {
                     DiskSpaceCard(diskSpace: diskSpace)
+                } else {
+                    DiskSpaceUnavailableCard {
+                        Task { await cleanupService.scanSpaceUsage() }
+                    }
                 }
 
                 SpaceUsageView()
@@ -96,6 +100,29 @@ struct DiskSpaceCard: View {
                 .font(.caption)
                 .fontWeight(.semibold)
         }
+    }
+}
+
+// MARK: - DiskSpaceUnavailableCard
+
+struct DiskSpaceUnavailableCard: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "externaldrive.trianglebadge.exclamationmark")
+                .font(.title)
+                .foregroundColor(.secondary)
+            Text("Unable to load disk space information")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Button("Retry", action: onRetry)
+                .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(10)
     }
 }
 

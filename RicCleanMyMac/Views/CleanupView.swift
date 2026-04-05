@@ -2,18 +2,13 @@ import SwiftUI
 
 struct CleanupView: View {
     @EnvironmentObject var cleanupService: CleanupService
-    @State private var selectedItems: Set<UUID> = []
+    @State private var selectedItems: Set<String> = []
     @State private var showConfirmation = false
     @State private var isCleaning = false
     @State private var showError = false
-    @State private var cleanupBanner: CleanupBanner? = nil
+    @State private var cleanupResult: CleanupResult? = nil
     @State private var sortOrder: SortOrder = .size
     @State private var filterType: CleanupType? = nil
-
-    struct CleanupBanner {
-        let count: Int
-        let size: Int64
-    }
 
     enum SortOrder: String, CaseIterable {
         case size = "Size"
@@ -48,8 +43,8 @@ struct CleanupView: View {
             } else if cleanupService.cleanupItems.isEmpty {
                 EmptyStateView(onScan: { Task { await cleanupService.scan() } })
             } else {
-                if let banner = cleanupBanner {
-                    cleanupBannerView(banner)
+                if let result = cleanupResult {
+                    cleanupBannerView(result)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -76,18 +71,13 @@ struct CleanupView: View {
                 bottomToolbar
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: cleanupBanner != nil)
+        .animation(.easeInOut(duration: 0.25), value: cleanupResult != nil)
         .cleanupConfirmation(
             isPresented: $showConfirmation,
             items: selectedCleanupItems,
             totalSize: selectedTotalSize
         ) {
             Task { await performCleanup() }
-        }
-        .alert("Cleanup Failed", isPresented: $showError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Some items could not be cleaned because they are outside the allowed directories.")
         }
     }
 
@@ -105,16 +95,37 @@ struct CleanupView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func cleanupBannerView(_ banner: CleanupBanner) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-            Text("Cleaned \(banner.count) item(s) — freed \(ByteCountFormatter.string(fromByteCount: banner.size))")
-                .font(.subheadline)
-                .fontWeight(.medium)
+    private func cleanupBannerView(_ result: CleanupResult) -> some View {
+        let bannerColor: Color = result.isFullSuccess ? .green : (result.isFullFailure ? .red : .orange)
+        let icon = result.isFullSuccess ? "checkmark.circle.fill" : (result.isFullFailure ? "xmark.circle.fill" : "exclamationmark.triangle.fill")
+
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(bannerColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if result.isFullSuccess {
+                    Text("Cleaned \(result.successCount) item(s) — freed \(ByteCountFormatter.string(fromByteCount: result.freedSize))")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                } else if result.isFullFailure {
+                    Text("Cleanup failed — \(result.failedCount) item(s) could not be deleted")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                } else {
+                    Text("Cleaned \(result.successCount) of \(result.totalCount) item(s) — freed \(ByteCountFormatter.string(fromByteCount: result.freedSize))")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text("\(result.failedCount) item(s) could not be deleted")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Spacer()
+
             Button {
-                withAnimation { cleanupBanner = nil }
+                withAnimation { cleanupResult = nil }
             } label: {
                 Image(systemName: "xmark")
                     .foregroundColor(.secondary)
@@ -123,7 +134,7 @@ struct CleanupView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(Color.green.opacity(0.12))
+        .background(bannerColor.opacity(0.12))
     }
 
     private var toolbarView: some View {
@@ -150,7 +161,7 @@ struct CleanupView: View {
             .frame(width: 130)
 
             Button("Scan Again") {
-                withAnimation { cleanupBanner = nil }
+                withAnimation { cleanupResult = nil }
                 Task { await cleanupService.scan() }
             }
         }
@@ -223,9 +234,9 @@ struct CleanupView: View {
                 Spacer()
 
                 Button("Select All") {
-                    selectedItems = Set(cleanupService.cleanupItems.map(\.id))
+                    selectedItems = Set(displayedItems.map(\.id))
                 }
-                .disabled(selectedItems.count == cleanupService.cleanupItems.count)
+                .disabled(displayedItems.allSatisfy { selectedItems.contains($0.id) })
 
                 Button("Deselect All") {
                     selectedItems.removeAll()
@@ -263,13 +274,9 @@ struct CleanupView: View {
 
         await MainActor.run {
             isCleaning = false
-            if let result = result {
-                selectedItems.removeAll()
-                withAnimation {
-                    cleanupBanner = CleanupBanner(count: result.successCount, size: result.freedSize)
-                }
-            } else {
-                showError = true
+            selectedItems.removeAll()
+            withAnimation {
+                cleanupResult = result
             }
         }
     }
