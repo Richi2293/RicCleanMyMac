@@ -11,7 +11,7 @@ final class FileNode: Identifiable {
     weak var parent: FileNode?
 
     var formattedSize: String {
-        ByteCountFormatter.string(fromByteCount: size)
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
     var icon: String {
