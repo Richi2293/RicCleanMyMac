@@ -115,13 +115,10 @@ struct FileListRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
+        .onTapGesture {
             if node.isDirectory {
                 onNavigate()
-            }
-        }
-        .onTapGesture(count: 1) {
-            if isDeletable {
+            } else if isDeletable {
                 onToggleSelection()
             }
         }
