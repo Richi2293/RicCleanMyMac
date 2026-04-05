@@ -145,7 +145,7 @@ private struct BinaryReader {
     mutating func readUInt16() throws -> UInt16 {
         guard offset + 2 <= data.count else { throw ScanCacheError.truncatedData }
         let value = data.withUnsafeBytes { buffer in
-            buffer.load(fromByteOffset: offset, as: UInt16.self)
+            buffer.loadUnaligned(fromByteOffset: offset, as: UInt16.self)
         }
         offset += 2
         return UInt16(littleEndian: value)
@@ -154,7 +154,7 @@ private struct BinaryReader {
     mutating func readUInt32() throws -> UInt32 {
         guard offset + 4 <= data.count else { throw ScanCacheError.truncatedData }
         let value = data.withUnsafeBytes { buffer in
-            buffer.load(fromByteOffset: offset, as: UInt32.self)
+            buffer.loadUnaligned(fromByteOffset: offset, as: UInt32.self)
         }
         offset += 4
         return UInt32(littleEndian: value)
@@ -163,7 +163,7 @@ private struct BinaryReader {
     mutating func readInt64() throws -> Int64 {
         guard offset + 8 <= data.count else { throw ScanCacheError.truncatedData }
         let value = data.withUnsafeBytes { buffer in
-            buffer.load(fromByteOffset: offset, as: Int64.self)
+            buffer.loadUnaligned(fromByteOffset: offset, as: Int64.self)
         }
         offset += 8
         return Int64(littleEndian: value)
@@ -172,7 +172,7 @@ private struct BinaryReader {
     mutating func readFloat64() throws -> Float64 {
         guard offset + 8 <= data.count else { throw ScanCacheError.truncatedData }
         let bits = data.withUnsafeBytes { buffer in
-            buffer.load(fromByteOffset: offset, as: UInt64.self)
+            buffer.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
         }
         offset += 8
         return Float64(bitPattern: UInt64(littleEndian: bits))
