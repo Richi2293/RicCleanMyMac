@@ -18,7 +18,7 @@ final class DirectoryScanner: ObservableObject {
     private var cacheURL: URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("RicCleanMyMac")
-            .appendingPathComponent("scan-cache.bplist.lzfse")
+            .appendingPathComponent("scan-cache.bin.lzfse")
     }
 
     /// Protected system paths that cannot be deleted
@@ -73,12 +73,7 @@ final class DirectoryScanner: ObservableObject {
         Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { [weak self] () -> DirectoryScanResult? in
                 guard let self else { return nil }
-                guard let loaded = self.loadFromDisk() else { return nil }
-                let t0 = CFAbsoluteTimeGetCurrent()
-                loaded.root.rebuildParentReferences()
-                let t1 = CFAbsoluteTimeGetCurrent()
-                logger.info("rebuildParentReferences: \(String(format: "%.2f", t1 - t0))s")
-                return loaded
+                return self.loadFromDisk()
             }.value
 
             await MainActor.run { [weak self] in
@@ -292,13 +287,11 @@ final class DirectoryScanner: ObservableObject {
             let directory = cacheURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-            let encoder = PropertyListEncoder()
-            encoder.outputFormat = .binary
-            let data = try encoder.encode(result)
+            let data = ScanCacheSerializer.write(result)
             let compressed = try (data as NSData).compressed(using: .lzfse) as Data
             try compressed.write(to: cacheURL, options: .atomic)
 
-            logger.info("Saved scan cache (\(compressed.count) bytes compressed)")
+            logger.info("Saved scan cache (\(compressed.count) bytes compressed, \(data.count) bytes raw)")
         } catch {
             logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
         }
@@ -316,7 +309,7 @@ final class DirectoryScanner: ObservableObject {
             let data = try (compressed as NSData).decompressed(using: .lzfse) as Data
             let t2 = CFAbsoluteTimeGetCurrent()
 
-            let result = try PropertyListDecoder().decode(DirectoryScanResult.self, from: data)
+            let result = try ScanCacheSerializer.read(from: data)
             let t3 = CFAbsoluteTimeGetCurrent()
 
             logger.info("""
