@@ -102,6 +102,7 @@ final class DirectoryScanner: ObservableObject {
             var filesCount = 0
             var directoriesCount = 0
             var scannedCount = 0
+            var lastProgressUpdate: CFAbsoluteTime = 0
 
             func buildTree(at url: URL, parent: FileNode?) -> FileNode {
                 let node = FileNode(
@@ -148,7 +149,9 @@ final class DirectoryScanner: ObservableObject {
                     }
 
                     scannedCount += 1
-                    if scannedCount % 1000 == 0 {
+                    let now = CFAbsoluteTimeGetCurrent()
+                    if now - lastProgressUpdate >= 0.1 {
+                        lastProgressUpdate = now
                         let count = scannedCount
                         let currentPath = url.lastPathComponent
                         Task { @MainActor [weak self] in
