@@ -16,18 +16,18 @@ class DiskAnalyzer {
             
             guard let resourceValues = try? volumeURL.resourceValues(forKeys: [
                 .volumeTotalCapacityKey,
-                .volumeAvailableCapacityKey
+                .volumeAvailableCapacityForImportantUsageKey
             ]) else {
                 return nil
             }
-            
+
             guard let totalCapacity = resourceValues.volumeTotalCapacity,
-                  let availableCapacity = resourceValues.volumeAvailableCapacity else {
+                  let availableCapacity = resourceValues.volumeAvailableCapacityForImportantUsage else {
                 return nil
             }
-            
+
             let total = Int64(totalCapacity)
-            let available = Int64(availableCapacity)
+            let available = availableCapacity
             let used = total - available
             
             return DiskSpace(

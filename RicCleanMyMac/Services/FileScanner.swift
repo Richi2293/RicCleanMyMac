@@ -5,26 +5,32 @@ class FileScanner {
     private let fileManager = FileManager.default
 
     /// Scan for cleanup items in standard system directories
+    /// - Parameter onProgress: Optional callback invoked before each directory scan with a status label
     /// - Returns: Array of CleanupItem found during scan
-    func scanForCleanupItems() async -> [CleanupItem] {
+    func scanForCleanupItems(onProgress: ((String) -> Void)? = nil) async -> [CleanupItem] {
         var items: [CleanupItem] = []
 
+        onProgress?("Scanning Cache...")
         if let cacheItems = await scanCacheDirectory() {
             items.append(contentsOf: cacheItems)
         }
 
+        onProgress?("Scanning Logs...")
         if let logItems = await scanLogDirectory() {
             items.append(contentsOf: logItems)
         }
 
+        onProgress?("Scanning Temporary Files...")
         if let tempItems = await scanTemporaryDirectory() {
             items.append(contentsOf: tempItems)
         }
 
+        onProgress?("Scanning Downloads...")
         if let downloadItems = await scanDownloadsDirectory() {
             items.append(contentsOf: downloadItems)
         }
 
+        onProgress?("Scanning Trash...")
         if let trashItems = await scanTrashDirectory() {
             items.append(contentsOf: trashItems)
         }
