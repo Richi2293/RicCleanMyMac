@@ -106,7 +106,6 @@ final class DirectoryScanner: ObservableObject {
             func buildTree(at url: URL, parent: FileNode?) -> FileNode {
                 let node = FileNode(
                     name: url.lastPathComponent,
-                    path: url.path,
                     size: 0,
                     isDirectory: true
                 )
@@ -139,7 +138,6 @@ final class DirectoryScanner: ObservableObject {
                         let fileSize = Int64(values?.fileSize ?? 0)
                         let childNode = FileNode(
                             name: itemURL.lastPathComponent,
-                            path: itemURL.path,
                             size: fileSize,
                             isDirectory: false
                         )
