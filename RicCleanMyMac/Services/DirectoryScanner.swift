@@ -18,7 +18,7 @@ final class DirectoryScanner: ObservableObject {
     private var cacheURL: URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("RicCleanMyMac")
-            .appendingPathComponent("scan-cache.dat")
+            .appendingPathComponent("scan-cache.bplist.lzfse")
     }
 
     /// Protected system paths that cannot be deleted
@@ -288,7 +288,9 @@ final class DirectoryScanner: ObservableObject {
             let directory = cacheURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
-            let data = try JSONEncoder().encode(result)
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            let data = try encoder.encode(result)
             let compressed = try (data as NSData).compressed(using: .lzfse) as Data
             try compressed.write(to: cacheURL, options: .atomic)
 
@@ -304,7 +306,7 @@ final class DirectoryScanner: ObservableObject {
         do {
             let compressed = try Data(contentsOf: cacheURL)
             let data = try (compressed as NSData).decompressed(using: .lzfse) as Data
-            let result = try JSONDecoder().decode(DirectoryScanResult.self, from: data)
+            let result = try PropertyListDecoder().decode(DirectoryScanResult.self, from: data)
 
             logger.info("Loaded scan cache from \(result.formattedScanDate)")
             return result
