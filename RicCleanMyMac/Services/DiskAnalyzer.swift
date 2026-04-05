@@ -22,7 +22,8 @@ class DiskAnalyzer {
             do {
                 resourceValues = try volumeURL.resourceValues(forKeys: [
                     .volumeTotalCapacityKey,
-                    .volumeAvailableCapacityKey
+                    .volumeAvailableCapacityKey,
+                    .volumeAvailableCapacityForImportantUsageKey
                 ])
             } catch {
                 logger.error("Failed to read volume resources: \(error.localizedDescription, privacy: .public)")
@@ -35,9 +36,12 @@ class DiskAnalyzer {
                 return nil
             }
 
+            let availableForImportantUsage = resourceValues.volumeAvailableCapacityForImportantUsage ?? Int64(availableCapacity)
+
             return DiskSpace(
                 total: Int64(totalCapacity),
-                available: Int64(availableCapacity)
+                available: Int64(availableCapacity),
+                availableForImportantUsage: availableForImportantUsage
             )
         }.value
     }

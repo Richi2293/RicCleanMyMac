@@ -69,10 +69,26 @@ struct DiskSpaceCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     diskLegendRow(color: usageColor, label: "Used", value: diskSpace.formattedUsed)
                     diskLegendRow(color: .green.opacity(0.7), label: "Available", value: diskSpace.formattedAvailable)
+                    if diskSpace.purgeable > 0 {
+                        diskLegendRow(color: .green.opacity(0.35), label: "Purgeable", value: diskSpace.formattedPurgeable, caption: "reclaimable by macOS")
+                        Divider()
+                        diskLegendRow(color: .green, label: "Total Available", value: diskSpace.formattedAvailableForImportantUsage, caption: "as shown by macOS")
+                    }
                     diskLegendRow(color: Color(NSColor.separatorColor), label: "Total", value: diskSpace.formattedTotal)
                 }
 
                 Spacer()
+            }
+
+            if diskSpace.purgeable > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("macOS reports \(diskSpace.formattedAvailableForImportantUsage) available (includes purgeable space)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding()
@@ -88,7 +104,7 @@ struct DiskSpaceCard: View {
         }
     }
 
-    private func diskLegendRow(color: Color, label: String, value: String) -> some View {
+    private func diskLegendRow(color: Color, label: String, value: String, caption: String? = nil) -> some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(color)
@@ -99,6 +115,11 @@ struct DiskSpaceCard: View {
             Text(value)
                 .font(.caption)
                 .fontWeight(.semibold)
+            if let caption {
+                Text("(\(caption))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }
