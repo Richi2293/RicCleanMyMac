@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import os
+import CommonCrypto
 
 private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac",
@@ -18,14 +19,35 @@ final class DirectoryScanner: ObservableObject {
     @Published var deleteMode: DeleteMode = .trash
     @Published var lastError: ScanError?
 
+    /// The root path the scanner is currently working on (either actively
+    /// scanning, loading from cache, or showing results for). `nil` when
+    /// no scan has started yet this session.
+    @Published private(set) var currentRootPath: String?
+
     private let fileManager = FileManager.default
     private var scanTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
 
-    private var cacheURL: URL? {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+    /// Returns the cache URL for a given scan root. The filename embeds a
+    /// short hash of the root so different roots never collide.
+    private func cacheURL(forRootPath rootPath: String) -> URL? {
+        let normalized = URL(fileURLWithPath: rootPath).standardizedFileURL.path
+        let digest = Self.shortHash(of: normalized)
+        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("RicCleanMyMac")
-            .appendingPathComponent("scan-cache.bin.lzfse")
+            .appendingPathComponent("scan-cache-\(digest).bin.lzfse")
+    }
+
+    /// 16-hex-char prefix of the SHA-256 of the input. Cryptographic strength
+    /// is not required — we just need a filename-safe, stable, collision-rare
+    /// fingerprint of the root path.
+    private static func shortHash(of string: String) -> String {
+        let data = Data(string.utf8)
+        var hash = [UInt8](repeating: 0, count: 32)
+        data.withUnsafeBytes { buffer in
+            _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
+        }
+        return hash.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Scanning
@@ -35,6 +57,7 @@ final class DirectoryScanner: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
 
+        currentRootPath = rootPath
         isScanning = true
         isLoadingCache = false
         scanResult = nil
@@ -78,9 +101,9 @@ final class DirectoryScanner: ObservableObject {
 
         // Save happens on a detached task so the main thread is not blocked by
         // serialization and LZFSE compression (both are CPU-bound on large trees).
-        let cacheURL = self.cacheURL
+        guard let rootPath = currentRootPath,
+              let cacheURL = cacheURL(forRootPath: rootPath) else { return }
         Task.detached(priority: .utility) { [weak self] in
-            guard let cacheURL else { return }
             do {
                 try Self.saveToDisk(result, cacheURL: cacheURL)
             } catch {
@@ -92,18 +115,20 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
-    /// Whether a cached scan exists on disk.
-    var hasCachedResult: Bool {
-        guard let cacheURL else { return false }
+    /// Whether a cached scan exists on disk for the given root path.
+    func hasCachedResult(forRootPath rootPath: String) -> Bool {
+        guard let cacheURL = cacheURL(forRootPath: rootPath) else { return false }
         return fileManager.fileExists(atPath: cacheURL.path)
     }
 
-    /// Load cached scan result asynchronously (off the main thread).
-    func loadCachedResult() {
+    /// Load the cached scan result for the given root path asynchronously
+    /// (off the main thread).
+    func loadCachedResult(forRootPath rootPath: String) {
         guard scanResult == nil, !isLoadingCache, !isScanning else { return }
+        currentRootPath = rootPath
         isLoadingCache = true
 
-        let cacheURL = self.cacheURL
+        let cacheURL = self.cacheURL(forRootPath: rootPath)
         loadTask = Task { [weak self] in
             let outcome: CacheLoadOutcome = await Task.detached(priority: .userInitiated) {
                 guard let cacheURL else { return .notFound }
