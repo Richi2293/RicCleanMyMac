@@ -2,18 +2,25 @@ import Foundation
 import Combine
 import os
 
-private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac", category: "DirectoryScanner")
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac",
+    category: "DirectoryScanner"
+)
 
+@MainActor
 final class DirectoryScanner: ObservableObject {
     @Published var isScanning = false
+    @Published var isLoadingCache = false
     @Published var progress = ScanProgress(filesScanned: 0, currentPath: "")
     @Published var scanResult: DirectoryScanResult?
     @Published var currentNode: FileNode?
     @Published var selectedItems: Set<ObjectIdentifier> = []
     @Published var deleteMode: DeleteMode = .trash
+    @Published var lastError: ScanError?
 
     private let fileManager = FileManager.default
     private var scanTask: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
 
     private var cacheURL: URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
@@ -21,7 +28,8 @@ final class DirectoryScanner: ObservableObject {
             .appendingPathComponent("scan-cache.bin.lzfse")
     }
 
-    /// Protected system paths that cannot be deleted
+    /// Protected system paths that cannot be deleted. Matched against the
+    /// standardized absolute path of each candidate node.
     private let protectedPrefixes: [String] = [
         "/System", "/usr", "/bin", "/sbin", "/private", "/Library"
     ]
@@ -30,7 +38,11 @@ final class DirectoryScanner: ObservableObject {
 
     func scan(rootPath: String) {
         scanTask?.cancel()
+        loadTask?.cancel()
+        loadTask = nil
+
         isScanning = true
+        isLoadingCache = false
         scanResult = nil
         currentNode = nil
         selectedItems.removeAll()
@@ -39,49 +51,85 @@ final class DirectoryScanner: ObservableObject {
         let startTime = Date()
 
         scanTask = Task { [weak self] in
-            guard let self else { return }
-
-            let result = await self.performScan(rootPath: rootPath, startTime: startTime)
-
-            guard !Task.isCancelled else { return }
-
-            if let result {
-                self.saveToDisk(result)
+            let progressHandler: @Sendable (ScanProgress) -> Void = { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    self?.progress = progress
+                }
             }
 
-            await MainActor.run { [weak self] in
-                self?.scanResult = result
-                self?.currentNode = result?.root
-                self?.isScanning = false
+            let outcome = await Self.performScan(
+                rootPath: rootPath,
+                startTime: startTime,
+                progressHandler: progressHandler
+            )
+
+            guard let self, !Task.isCancelled else { return }
+
+            switch outcome {
+            case .success(let result):
+                await self.handleScanSuccess(result)
+            case .failed(let reason):
+                self.isScanning = false
+                self.lastError = .scanFailed(reason)
+            case .cancelled:
+                self.isScanning = false
             }
         }
     }
 
-    @Published var isLoadingCache = false
+    private func handleScanSuccess(_ result: DirectoryScanResult) async {
+        scanResult = result
+        currentNode = result.root
+        isScanning = false
 
-    /// Whether a cached scan exists on disk
+        // Save happens on a detached task so the main thread is not blocked by
+        // serialization and LZFSE compression (both are CPU-bound on large trees).
+        let cacheURL = self.cacheURL
+        Task.detached(priority: .utility) { [weak self] in
+            guard let cacheURL else { return }
+            do {
+                try Self.saveToDisk(result, cacheURL: cacheURL)
+            } catch {
+                logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
+                await MainActor.run { [weak self] in
+                    self?.lastError = .cacheSaveFailed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Whether a cached scan exists on disk.
     var hasCachedResult: Bool {
         guard let cacheURL else { return false }
         return fileManager.fileExists(atPath: cacheURL.path)
     }
 
-    /// Load cached scan result asynchronously (off main thread)
+    /// Load cached scan result asynchronously (off the main thread).
     func loadCachedResult() {
-        guard scanResult == nil, !isLoadingCache else { return }
+        guard scanResult == nil, !isLoadingCache, !isScanning else { return }
         isLoadingCache = true
 
-        Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) { [weak self] () -> DirectoryScanResult? in
-                guard let self else { return nil }
-                return self.loadFromDisk()
+        let cacheURL = self.cacheURL
+        loadTask = Task { [weak self] in
+            let outcome: CacheLoadOutcome = await Task.detached(priority: .userInitiated) {
+                guard let cacheURL else { return .notFound }
+                return Self.loadFromDisk(cacheURL: cacheURL)
             }.value
 
-            await MainActor.run { [weak self] in
-                if let result {
-                    self?.scanResult = result
-                    self?.currentNode = result.root
-                }
-                self?.isLoadingCache = false
+            guard let self, !Task.isCancelled else { return }
+
+            self.isLoadingCache = false
+            self.loadTask = nil
+
+            switch outcome {
+            case .success(let result):
+                self.scanResult = result
+                self.currentNode = result.root
+            case .notFound:
+                // No cache yet — UI handles this by offering a fresh scan.
+                break
+            case .failed(let reason):
+                self.lastError = .cacheLoadFailed(reason)
             }
         }
     }
@@ -89,93 +137,113 @@ final class DirectoryScanner: ObservableObject {
     func cancel() {
         scanTask?.cancel()
         scanTask = nil
-        Task { @MainActor [weak self] in
-            self?.isScanning = false
-        }
+        loadTask?.cancel()
+        loadTask = nil
+        isScanning = false
+        isLoadingCache = false
     }
 
-    private func performScan(rootPath: String, startTime: Date) async -> DirectoryScanResult? {
-        return await Task.detached(priority: .userInitiated) { [weak self] () -> DirectoryScanResult? in
-            guard let self else { return nil }
+    // MARK: - Scan worker
+
+    /// Outcome of a scan run. Distinct from `nil` so the caller can distinguish
+    /// cancellation from a real failure and report accordingly.
+    private enum ScanOutcome {
+        case success(DirectoryScanResult)
+        case cancelled
+        case failed(String)
+    }
+
+    nonisolated private static func performScan(
+        rootPath: String,
+        startTime: Date,
+        progressHandler: @Sendable @escaping (ScanProgress) -> Void
+    ) async -> ScanOutcome {
+        return await Task.detached(priority: .userInitiated) { () -> ScanOutcome in
+            let fileManager = FileManager.default
             var filesCount = 0
             var directoriesCount = 0
             var scannedCount = 0
             var lastProgressUpdate: CFAbsoluteTime = 0
 
-            func buildTree(at url: URL, parent: FileNode?) -> FileNode {
-                let node = FileNode(
-                    name: url.lastPathComponent,
-                    size: 0,
-                    isDirectory: true
-                )
-                node.parent = parent
-                directoriesCount += 1
+            // Throttle main-actor progress dispatches to ~10 Hz. Any higher and
+            // the main actor drowns in hops during deep recursion.
+            let progressInterval: CFAbsoluteTime = 0.1
 
-                guard let contents = try? self.fileManager.contentsOfDirectory(
-                    at: url,
-                    includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
-                    options: []
-                ) else {
-                    node.accessDenied = true
-                    return node
+            func buildTree(at url: URL) -> FileNode {
+                directoriesCount += 1
+                let name = url.lastPathComponent
+
+                let contents: [URL]
+                do {
+                    contents = try fileManager.contentsOfDirectory(
+                        at: url,
+                        includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+                        options: []
+                    )
+                } catch {
+                    logger.debug("contentsOfDirectory failed at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    return FileNode.inaccessibleDirectory(name: name)
                 }
 
                 var children: [FileNode] = []
+                children.reserveCapacity(contents.count)
                 var totalSize: Int64 = 0
 
                 for itemURL in contents {
                     if Task.isCancelled { break }
 
-                    let values = try? itemURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                    let values: URLResourceValues?
+                    do {
+                        values = try itemURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                    } catch {
+                        logger.debug("resourceValues failed at \(itemURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        values = nil
+                    }
                     let isDir = values?.isDirectory ?? false
 
                     if isDir {
-                        let childNode = buildTree(at: itemURL, parent: node)
+                        let childNode = buildTree(at: itemURL)
                         totalSize += childNode.size
                         children.append(childNode)
                     } else {
                         let fileSize = Int64(values?.fileSize ?? 0)
-                        let childNode = FileNode(
-                            name: itemURL.lastPathComponent,
-                            size: fileSize,
-                            isDirectory: false
-                        )
-                        childNode.parent = node
+                        children.append(FileNode.file(name: itemURL.lastPathComponent, size: fileSize))
                         totalSize += fileSize
                         filesCount += 1
-                        children.append(childNode)
                     }
 
                     scannedCount += 1
                     let now = CFAbsoluteTimeGetCurrent()
-                    if now - lastProgressUpdate >= 0.1 {
+                    if now - lastProgressUpdate >= progressInterval {
                         lastProgressUpdate = now
-                        let count = scannedCount
-                        let currentPath = url.lastPathComponent
-                        Task { @MainActor [weak self] in
-                            self?.progress = ScanProgress(filesScanned: count, currentPath: currentPath)
-                        }
+                        progressHandler(ScanProgress(filesScanned: scannedCount, currentPath: url.lastPathComponent))
                     }
                 }
 
-                node.children = children.sorted { $0.size > $1.size }
-                node.size = totalSize
-                return node
+                children.sort { $0.size > $1.size }
+                return FileNode.directory(name: name, children: children, size: totalSize, accessDenied: false)
             }
 
+            // Validate the root up front so we can distinguish "root unreadable"
+            // from "root readable but some descendants were skipped".
             let rootURL = URL(fileURLWithPath: rootPath)
-            let root = buildTree(at: rootURL, parent: nil)
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDir), isDir.boolValue else {
+                return .failed("Root path does not exist or is not a directory: \(rootPath)")
+            }
 
-            guard !Task.isCancelled else { return nil }
+            let root = buildTree(at: rootURL)
 
-            return DirectoryScanResult(
+            if Task.isCancelled { return .cancelled }
+
+            let result = DirectoryScanResult(
                 root: root,
-                totalSize: root.size,
                 totalFiles: filesCount,
                 totalDirectories: directoriesCount,
                 scanDuration: Date().timeIntervalSince(startTime),
                 scanDate: Date()
             )
+            return .success(result)
         }.value
     }
 
@@ -208,7 +276,7 @@ final class DirectoryScanner: ObservableObject {
 
     func isNodeDeletable(_ node: FileNode) -> Bool {
         if node.accessDenied { return false }
-        if node.id == scanResult?.root.id { return false }
+        if node === scanResult?.root { return false }
         return !isPathProtected(node.path)
     }
 
@@ -218,54 +286,98 @@ final class DirectoryScanner: ObservableObject {
 
     func deleteSelectedItems() async -> DeletionResult {
         guard let current = currentNode else {
-            return DeletionResult(successCount: 0, failedCount: 0, freedSize: 0)
+            return DeletionResult(successCount: 0, freedSize: 0, failures: [])
         }
         let nodes = current.findNodes(withIDs: selectedItems)
         let result = await deleteNodes(nodes)
-        await MainActor.run { [weak self] in
-            self?.selectedItems.removeAll()
-        }
+        selectedItems.removeAll()
         return result
     }
 
     private func deleteNodes(_ nodes: [FileNode]) async -> DeletionResult {
-        var successCount = 0
-        var failedCount = 0
-        var freedSize: Int64 = 0
-
-        for node in nodes {
-            guard isNodeDeletable(node) else {
-                logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
-                failedCount += 1
-                continue
-            }
-
-            guard fileManager.fileExists(atPath: node.path) else {
-                logger.info("Item no longer exists, skipping: \(node.path, privacy: .public)")
-                failedCount += 1
-                continue
-            }
-
-            do {
-                if deleteMode == .trash {
-                    try fileManager.trashItem(at: URL(fileURLWithPath: node.path), resultingItemURL: nil)
-                } else {
-                    try fileManager.removeItem(atPath: node.path)
-                }
-                freedSize += node.size
-                successCount += 1
-
-                await MainActor.run { [weak self] in
-                    node.parent?.removeChild(node)
-                    self?.objectWillChange.send()
-                }
-            } catch {
-                logger.error("Failed to delete \(node.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                failedCount += 1
-            }
+        struct DeletionJob: Sendable {
+            let index: Int
+            let path: String
+            let size: Int64
+        }
+        enum Outcome: Sendable {
+            case success(index: Int, freed: Int64)
+            case failure(DeletionFailure)
         }
 
-        return DeletionResult(successCount: successCount, failedCount: failedCount, freedSize: freedSize)
+        var jobs: [DeletionJob] = []
+        var failures: [DeletionFailure] = []
+
+        for (index, node) in nodes.enumerated() {
+            guard isNodeDeletable(node) else {
+                logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
+                failures.append(DeletionFailure(
+                    path: node.path,
+                    reason: "Protected or not deletable"
+                ))
+                continue
+            }
+            jobs.append(DeletionJob(index: index, path: node.path, size: node.size))
+        }
+
+        let deleteMode = self.deleteMode
+        let outcomes: [Outcome] = await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            var results: [Outcome] = []
+            results.reserveCapacity(jobs.count)
+            for job in jobs {
+                guard fm.fileExists(atPath: job.path) else {
+                    results.append(.failure(DeletionFailure(
+                        path: job.path,
+                        reason: "Item no longer exists"
+                    )))
+                    continue
+                }
+                do {
+                    switch deleteMode {
+                    case .trash:
+                        try fm.trashItem(at: URL(fileURLWithPath: job.path), resultingItemURL: nil)
+                    case .permanent:
+                        try fm.removeItem(atPath: job.path)
+                    }
+                    results.append(.success(index: job.index, freed: job.size))
+                } catch {
+                    results.append(.failure(DeletionFailure(
+                        path: job.path,
+                        reason: error.localizedDescription
+                    )))
+                }
+            }
+            return results
+        }.value
+
+        var successCount = 0
+        var freedSize: Int64 = 0
+        for outcome in outcomes {
+            switch outcome {
+            case .success(let index, let freed):
+                let node = nodes[index]
+                node.parent?.removeChild(node)
+                successCount += 1
+                freedSize += freed
+            case .failure(let failure):
+                logger.error("Failed to delete \(failure.path, privacy: .public): \(failure.reason, privacy: .public)")
+                failures.append(failure)
+            }
+        }
+        if successCount > 0 {
+            objectWillChange.send()
+        }
+
+        let result = DeletionResult(
+            successCount: successCount,
+            freedSize: freedSize,
+            failures: failures
+        )
+        if !failures.isEmpty {
+            lastError = .deletionFailed(failures: failures)
+        }
+        return result
     }
 
     private func isPathProtected(_ path: String) -> Bool {
@@ -280,29 +392,31 @@ final class DirectoryScanner: ObservableObject {
 
     // MARK: - Persistence
 
-    private func saveToDisk(_ result: DirectoryScanResult) {
-        guard let cacheURL else { return }
-
-        do {
-            let directory = cacheURL.deletingLastPathComponent()
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
-            let data = ScanCacheSerializer.write(result)
-            let compressed = try (data as NSData).compressed(using: .lzfse) as Data
-            try compressed.write(to: cacheURL, options: .atomic)
-
-            logger.info("Saved scan cache (\(compressed.count) bytes compressed, \(data.count) bytes raw)")
-        } catch {
-            logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
-        }
+    /// Outcome of a cache load attempt, distinguishing "no cache" from "cache corrupted".
+    private enum CacheLoadOutcome {
+        case success(DirectoryScanResult)
+        case notFound
+        case failed(String)
     }
 
-    private func loadFromDisk() -> DirectoryScanResult? {
-        guard let cacheURL, fileManager.fileExists(atPath: cacheURL.path) else { return nil }
+    nonisolated private static func saveToDisk(_ result: DirectoryScanResult, cacheURL: URL) throws {
+        let fileManager = FileManager.default
+        let directory = cacheURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let data = try ScanCacheSerializer.write(result)
+        let compressed = try (data as NSData).compressed(using: .lzfse) as Data
+        try compressed.write(to: cacheURL, options: .atomic)
+
+        logger.info("Saved scan cache (\(compressed.count) bytes compressed, \(data.count) bytes raw)")
+    }
+
+    nonisolated private static func loadFromDisk(cacheURL: URL) -> CacheLoadOutcome {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: cacheURL.path) else { return .notFound }
 
         do {
-            var t0 = CFAbsoluteTimeGetCurrent()
-
+            let t0 = CFAbsoluteTimeGetCurrent()
             let compressed = try Data(contentsOf: cacheURL)
             let t1 = CFAbsoluteTimeGetCurrent()
 
@@ -322,11 +436,15 @@ final class DirectoryScanner: ObservableObject {
                 files: \(result.totalFiles), \
                 folders: \(result.totalDirectories)
                 """)
-            return result
+            return .success(result)
         } catch {
             logger.error("Failed to load scan cache: \(error.localizedDescription, privacy: .public)")
-            try? fileManager.removeItem(at: cacheURL)
-            return nil
+            do {
+                try fileManager.removeItem(at: cacheURL)
+            } catch {
+                logger.error("Failed to remove corrupt scan cache: \(error.localizedDescription, privacy: .public)")
+            }
+            return .failed(error.localizedDescription)
         }
     }
 }
