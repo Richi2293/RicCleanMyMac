@@ -321,8 +321,13 @@ struct DiskAnalyzerView: View {
 
     // MARK: - Root selection
 
-    /// Start a scan (or load the cache) for the currently selected root.
-    /// Persists the choice so the next app launch reopens the same root.
+    /// Single designated entry point for initiating a scan from the view.
+    /// Persists the choice immediately so the next app launch reopens the
+    /// same root even if the scan itself fails — if the user picked a root,
+    /// we honor that intent at the next launch rather than silently falling
+    /// back to the previous one. Every UI action that starts or loads a
+    /// scan should go through this method so `selectedRoot` and
+    /// `scanner.currentRootPath` stay in sync.
     private func startOrLoad(for root: DiskAnalyzerRoot) {
         selectedRoot = root
         root.save()

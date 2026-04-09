@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which directory the disk analyzer is scanning.
-enum DiskAnalyzerRoot: Equatable {
+enum DiskAnalyzerRoot: Hashable {
     /// The user's home directory (`~`). This is the default.
     case home
 
