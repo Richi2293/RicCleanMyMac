@@ -67,27 +67,21 @@ struct FileListRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if isDeletable {
-                Button(action: onToggleSelection) {
-                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                        .foregroundColor(isSelected ? .accentColor : .secondary)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Image(systemName: "lock.fill")
-                    .foregroundColor(.secondary.opacity(0.5))
-                    .frame(width: 16)
-            }
+            leadingControl
 
             Image(systemName: node.icon)
                 .foregroundColor(node.isDirectory ? .accentColor : .secondary)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(node.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(node.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .foregroundColor(nameColor)
+                    statusBadge
+                }
 
                 if node.isDirectory, let childCount = node.children?.count {
                     Text("\(childCount) item(s)")
@@ -101,7 +95,7 @@ struct FileListRow: View {
             sizeBar
                 .frame(width: 60)
 
-            Text(node.formattedSize)
+            Text(sizeText)
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -116,12 +110,86 @@ struct FileListRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
+            if case .skipped = node.status {
+                return
+            }
             if node.isDirectory {
                 onNavigate()
             } else if isDeletable {
                 onToggleSelection()
             }
         }
+    }
+
+    @ViewBuilder
+    private var leadingControl: some View {
+        if isDeletable {
+            Button(action: onToggleSelection) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+        } else {
+            switch node.status {
+            case .readOnly:
+                Image(systemName: "lock.fill")
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(width: 16)
+                    .help("Read-only: protected by scan policy")
+            case .skipped:
+                Image(systemName: "minus.circle")
+                    .foregroundColor(.secondary.opacity(0.5))
+                    .frame(width: 16)
+                    .help("Skipped: not scanned")
+            case .inaccessible:
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundColor(.orange.opacity(0.7))
+                    .frame(width: 16)
+                    .help("Could not be read")
+            case .normal:
+                // Only reached for the scan root (which is .normal but
+                // `isDeletable` returns false). Use a neutral placeholder.
+                Image(systemName: "circle.dashed")
+                    .foregroundColor(.secondary.opacity(0.4))
+                    .frame(width: 16)
+            }
+        }
+    }
+
+    private var nameColor: Color {
+        switch node.status {
+        case .skipped, .inaccessible: return .secondary
+        default: return .primary
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch node.status {
+        case .readOnly:
+            Text("read-only")
+                .font(.caption2)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.12))
+                .cornerRadius(3)
+                .foregroundColor(.secondary)
+        case .skipped(let reason):
+            Text("skipped: \(reason.lowercased())")
+                .font(.caption2)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.12))
+                .cornerRadius(3)
+                .foregroundColor(.secondary)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var sizeText: String {
+        if case .skipped = node.status { return "—" }
+        return node.formattedSize
     }
 
     private var sizeBar: some View {
