@@ -79,7 +79,7 @@ enum SunburstLayout {
                 let otherSweep = Angle.degrees(sweep.degrees * Double(otherSize) / Double(node.size))
                 if otherSweep >= minSweep {
                     segments.append(SunburstSegment(
-                        node: FileNode(name: "Other", size: otherSize, isDirectory: false),
+                        node: FileNode.file(name: "Other", size: otherSize),
                         depth: depth,
                         startAngle: currentAngle,
                         endAngle: currentAngle + otherSweep,
