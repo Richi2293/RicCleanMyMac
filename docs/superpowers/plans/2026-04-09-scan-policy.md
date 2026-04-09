@@ -228,13 +228,9 @@ Append inside the `ScanPolicy` enum body (before the closing brace):
     }
 ```
 
-- [ ] **Step 4: Add the file to the Xcode project**
+- [ ] **Step 4: Build**
 
-Open `RicCleanMyMac.xcodeproj` in Xcode, right-click the `Services` group in the Project Navigator, pick **Add Files to "RicCleanMyMac"…**, select `RicCleanMyMac/Services/ScanPolicy.swift`, ensure the **RicCleanMyMac** target checkbox is ticked, and click **Add**.
-
-Close Xcode after saving.
-
-- [ ] **Step 5: Build**
+The project uses `PBXFileSystemSynchronizedRootGroup` (Xcode 16+), so files under `RicCleanMyMac/` are auto-discovered — no `project.pbxproj` edit or Xcode GUI step is needed. Just run the build.
 
 Run:
 ```bash
@@ -242,10 +238,10 @@ xcodebuild -project RicCleanMyMac.xcodeproj -scheme RicCleanMyMac -destination '
 ```
 Expected: `** BUILD SUCCEEDED **` with no errors and no new warnings.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add RicCleanMyMac/Services/ScanPolicy.swift RicCleanMyMac.xcodeproj/project.pbxproj
+git add RicCleanMyMac/Services/ScanPolicy.swift
 git commit -m "feat(disk-analyzer): add ScanPolicy classifier
 
 Stateless type that decides whether a path should be scanned, marked
@@ -1196,11 +1192,9 @@ enum DiskAnalyzerRoot: Equatable {
 }
 ```
 
-- [ ] **Step 2: Add the file to the Xcode project**
+- [ ] **Step 2: Add state and a helper to `DiskAnalyzerView`**
 
-In Xcode, right-click the `Models` group, **Add Files to "RicCleanMyMac"…**, select `RicCleanMyMac/Models/DiskAnalyzerRoot.swift`, verify the target checkbox, click **Add**, close Xcode.
-
-- [ ] **Step 3: Add state and a helper to `DiskAnalyzerView`**
+(No Xcode project edit needed — `PBXFileSystemSynchronizedRootGroup` auto-discovers files under `RicCleanMyMac/`.)
 
 In `RicCleanMyMac/Views/DiskAnalyzerView.swift`, add new `@State` right after the existing `@State` declarations (around line 10, after `@State private var isDeleting = false`):
 
@@ -1230,7 +1224,7 @@ Then add a private helper at the end of the view (before the closing `}`):
     }
 ```
 
-- [ ] **Step 4: Replace the `onAppear` body**
+- [ ] **Step 3: Replace the `onAppear` body**
 
 In `DiskAnalyzerView.swift`, replace the current `onAppear` block:
 
@@ -1257,7 +1251,7 @@ with:
         }
 ```
 
-- [ ] **Step 5: Add the root picker to the toolbar**
+- [ ] **Step 4: Add the root picker to the toolbar**
 
 In `DiskAnalyzerView.swift`, find the `toolbar` computed property (around line 69-101). Locate the "Re-scan" button block:
 
@@ -1316,7 +1310,7 @@ Then add the `rootPicker` view at the end of the file (inside the struct, before
     }
 ```
 
-- [ ] **Step 6: Replace the remaining hardcoded `"/"` in `emptyState`**
+- [ ] **Step 5: Replace the remaining hardcoded `"/"` in `emptyState`**
 
 In `DiskAnalyzerView.swift`, find the `emptyState` (around line 181-200). Replace:
 
@@ -1338,7 +1332,7 @@ with:
             }
 ```
 
-- [ ] **Step 7: Verify no hardcoded `"/"` calls remain**
+- [ ] **Step 6: Verify no hardcoded `"/"` calls remain**
 
 Run from the project root:
 ```bash
@@ -1346,23 +1340,22 @@ grep -n 'scan(rootPath: "/")' RicCleanMyMac/Views/DiskAnalyzerView.swift
 ```
 Expected: no output. If any hits remain, replace them with `startOrLoad(for: selectedRoot)` or `rescanCurrentRoot()` depending on whether the action is "kick off (possibly from cache)" or "force a fresh scan".
 
-- [ ] **Step 8: Build**
+- [ ] **Step 7: Build**
 
 ```bash
 xcodebuild -project RicCleanMyMac.xcodeproj -scheme RicCleanMyMac -destination 'platform=macOS' -quiet build
 ```
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 9: Manual smoke check**
+- [ ] **Step 8: Manual smoke check**
 
 Run the app. The disk analyzer should open on the Home root by default. Use the menu to switch to Entire disk and back — each switch should trigger either a cached load or a fresh scan. Then pick a small folder via "Choose folder…" and confirm it scans that folder. Quit the app and relaunch: it should reopen on the last-selected root.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add RicCleanMyMac/Models/DiskAnalyzerRoot.swift \
-        RicCleanMyMac/Views/DiskAnalyzerView.swift \
-        RicCleanMyMac.xcodeproj/project.pbxproj
+        RicCleanMyMac/Views/DiskAnalyzerView.swift
 git commit -m "feat(disk-analyzer): selectable scan root with home as default
 
 Adds a menu in the toolbar to pick between Home (new default), Entire
