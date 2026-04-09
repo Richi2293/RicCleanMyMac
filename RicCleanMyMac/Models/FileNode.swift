@@ -1,11 +1,28 @@
 import Foundation
 
+/// The scanner's verdict on a node, capturing both policy decisions
+/// (`.readOnly`, `.skipped`) and runtime failures (`.inaccessible`).
+enum NodeStatus: Equatable {
+    /// Traversed normally. Deletable from the UI.
+    case normal
+
+    /// Traversed and measured, but protected by `ScanPolicy`. Not deletable.
+    case readOnly
+
+    /// Not traversed at all — placeholder node with `size == 0`.
+    case skipped(reason: String)
+
+    /// The directory existed but could not be read (permissions, I/O error).
+    /// Treated as non-deletable.
+    case inaccessible
+}
+
 final class FileNode: Identifiable {
     var id: ObjectIdentifier { ObjectIdentifier(self) }
     let name: String
     let isDirectory: Bool
     private(set) var size: Int64
-    private(set) var accessDenied: Bool
+    private(set) var status: NodeStatus
     private(set) var children: [FileNode]?
     private(set) weak var parent: FileNode?
 
@@ -15,7 +32,12 @@ final class FileNode: Identifiable {
 
     var icon: String {
         if isDirectory {
-            return accessDenied ? "folder.badge.questionmark" : "folder.fill"
+            switch status {
+            case .inaccessible: return "folder.badge.questionmark"
+            case .skipped: return "folder.badge.minus"
+            case .readOnly: return "folder.badge.gearshape"
+            case .normal: return "folder.fill"
+            }
         }
         return fileIcon(for: name)
     }
@@ -38,19 +60,19 @@ final class FileNode: Identifiable {
         return first.hasSuffix("/") ? first + rest : first + "/" + rest
     }
 
-    private init(name: String, size: Int64, isDirectory: Bool, accessDenied: Bool) {
+    private init(name: String, size: Int64, isDirectory: Bool, status: NodeStatus) {
         self.name = name
         self.size = size
         self.isDirectory = isDirectory
-        self.accessDenied = accessDenied
+        self.status = status
     }
 
     // MARK: - Factories
 
     /// Creates a leaf file node with no children and no parent.
     /// The caller attaches it to a parent via `FileNode.directory(..., children:)`.
-    static func file(name: String, size: Int64) -> FileNode {
-        FileNode(name: name, size: size, isDirectory: false, accessDenied: false)
+    static func file(name: String, size: Int64, status: NodeStatus = .normal) -> FileNode {
+        FileNode(name: name, size: size, isDirectory: false, status: status)
     }
 
     /// Creates a directory node and wires parent links on its children in one step.
@@ -60,10 +82,10 @@ final class FileNode: Identifiable {
         name: String,
         children: [FileNode],
         size: Int64? = nil,
-        accessDenied: Bool = false
+        status: NodeStatus = .normal
     ) -> FileNode {
         let totalSize = size ?? children.reduce(Int64(0)) { $0 + $1.size }
-        let node = FileNode(name: name, size: totalSize, isDirectory: true, accessDenied: accessDenied)
+        let node = FileNode(name: name, size: totalSize, isDirectory: true, status: status)
         node.children = children
         for child in children {
             child.parent = node
@@ -73,7 +95,13 @@ final class FileNode: Identifiable {
 
     /// Creates a directory node that could not be read (permission denied, I/O error).
     static func inaccessibleDirectory(name: String) -> FileNode {
-        FileNode(name: name, size: 0, isDirectory: true, accessDenied: true)
+        FileNode(name: name, size: 0, isDirectory: true, status: .inaccessible)
+    }
+
+    /// Convenience for creating a placeholder node for a directory the scanner
+    /// chose not to traverse because `ScanPolicy` returned `.skipped`.
+    static func skippedDirectory(name: String, reason: String) -> FileNode {
+        FileNode(name: name, size: 0, isDirectory: true, status: .skipped(reason: reason))
     }
 
     // MARK: - Mutations

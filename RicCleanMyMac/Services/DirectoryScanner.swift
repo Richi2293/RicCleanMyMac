@@ -28,12 +28,6 @@ final class DirectoryScanner: ObservableObject {
             .appendingPathComponent("scan-cache.bin.lzfse")
     }
 
-    /// Protected system paths that cannot be deleted. Matched against the
-    /// standardized absolute path of each candidate node.
-    private let protectedPrefixes: [String] = [
-        "/System", "/usr", "/bin", "/sbin", "/private", "/Library"
-    ]
-
     // MARK: - Scanning
 
     func scan(rootPath: String) {
@@ -221,7 +215,7 @@ final class DirectoryScanner: ObservableObject {
                 }
 
                 children.sort { $0.size > $1.size }
-                return FileNode.directory(name: name, children: children, size: totalSize, accessDenied: false)
+                return FileNode.directory(name: name, children: children, size: totalSize, status: .normal)
             }
 
             // Validate the root up front so we can distinguish "root unreadable"
@@ -275,9 +269,11 @@ final class DirectoryScanner: ObservableObject {
     // MARK: - Deletion
 
     func isNodeDeletable(_ node: FileNode) -> Bool {
-        if node.accessDenied { return false }
         if node === scanResult?.root { return false }
-        return !isPathProtected(node.path)
+        switch node.status {
+        case .normal: return true
+        case .readOnly, .skipped, .inaccessible: return false
+        }
     }
 
     func deleteSingleItem(_ node: FileNode) async -> DeletionResult {
@@ -310,11 +306,15 @@ final class DirectoryScanner: ObservableObject {
 
         for (index, node) in nodes.enumerated() {
             guard isNodeDeletable(node) else {
+                let reason: String
+                switch node.status {
+                case .readOnly: reason = "Path is read-only"
+                case .skipped: reason = "Path is skipped by scan policy"
+                case .inaccessible: reason = "Path could not be read during the scan"
+                case .normal: reason = "Path is the scan root"
+                }
                 logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
-                failures.append(DeletionFailure(
-                    path: node.path,
-                    reason: "Protected or not deletable"
-                ))
+                failures.append(DeletionFailure(path: node.path, reason: reason))
                 continue
             }
             jobs.append(DeletionJob(index: index, path: node.path, size: node.size))
@@ -378,16 +378,6 @@ final class DirectoryScanner: ObservableObject {
             lastError = .deletionFailed(failures: failures)
         }
         return result
-    }
-
-    private func isPathProtected(_ path: String) -> Bool {
-        let normalized = URL(fileURLWithPath: path).standardized.path
-        for prefix in protectedPrefixes {
-            if normalized == prefix || normalized.hasPrefix(prefix + "/") {
-                return true
-            }
-        }
-        return false
     }
 
     // MARK: - Persistence
