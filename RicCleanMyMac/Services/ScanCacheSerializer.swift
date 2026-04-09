@@ -8,6 +8,7 @@ enum ScanCacheError: Error {
     case childCountTooLarge(UInt32)
     case trailingData
     case valueTooLarge(String)
+    case corruptedFlags(UInt8)
 }
 
 /// Custom binary format for persisting directory scan results.
@@ -175,8 +176,13 @@ enum ScanCacheSerializer {
             status = .skipped(reason: reason)
         case 0b11: status = .inaccessible
         default:
-            // Unreachable because statusBits is two bits, but keep the compiler happy.
-            status = .normal
+            // Unreachable from well-formed data since statusBits is masked to two
+            // bits and all four values are handled above. If we ever reach this,
+            // either the flags byte is corrupt or a future NodeStatus case was
+            // added to the encoder without updating this decoder. Throwing here
+            // lets DirectoryScanner.loadFromDisk discard the cache and fall back
+            // to a fresh scan instead of silently producing a deletable node.
+            throw ScanCacheError.corruptedFlags(flags)
         }
 
         let childCount = try reader.readUInt32()
