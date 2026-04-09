@@ -163,9 +163,9 @@ final class DirectoryScanner: ObservableObject {
             // the main actor drowns in hops during deep recursion.
             let progressInterval: CFAbsoluteTime = 0.1
 
-            let bootVolumeName = (try? URL(fileURLWithPath: "/")
+            let bootVolumeName: String? = try? URL(fileURLWithPath: "/")
                 .resourceValues(forKeys: [.volumeNameKey])
-                .volumeName) ?? ""
+                .volumeName
             let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
 
             func buildTree(at url: URL) -> FileNode {
@@ -211,18 +211,24 @@ final class DirectoryScanner: ObservableObject {
                         case .scanned:
                             childNode = buildTree(at: itemURL)
                         case .readOnly:
-                            // Still traverse & measure, but mark the resulting
-                            // directory as read-only so the UI and deletion gate
-                            // know not to offer it for deletion. Children keep
-                            // their own classification (they were independently
-                            // classified by their own buildTree call).
+                            // Traverse and measure as usual, then re-wrap the result with
+                            // `.readOnly` status so the UI and deletion gate know. If the
+                            // inner traversal failed (e.g. permissions), preserve the
+                            // inaccessible node as-is instead of re-wrapping — that keeps
+                            // `children == nil` consistent with how `inaccessibleDirectory`
+                            // builds such nodes, and avoids the fragile assumption that
+                            // `buildTree` only returns `.normal` or `.inaccessible`.
                             let scanned = buildTree(at: itemURL)
-                            childNode = FileNode.directory(
-                                name: scanned.name,
-                                children: scanned.children ?? [],
-                                size: scanned.size,
-                                status: scanned.status == .inaccessible ? .inaccessible : .readOnly
-                            )
+                            if scanned.status == .inaccessible {
+                                childNode = scanned
+                            } else {
+                                childNode = FileNode.directory(
+                                    name: scanned.name,
+                                    children: scanned.children ?? [],
+                                    size: scanned.size,
+                                    status: .readOnly
+                                )
+                            }
                         case .skipped(let reason):
                             // Do not traverse. Emit a placeholder with size 0 so
                             // the user still sees that the path exists but does
