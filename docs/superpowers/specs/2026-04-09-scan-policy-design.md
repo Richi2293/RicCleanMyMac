@@ -132,8 +132,8 @@ enum NodeStatus: Equatable {
 `FileNode.inaccessibleDirectory(name:)` remains as a convenience constructor but now produces
 a node with `status == .inaccessible`.
 
-A backwards-compatible computed property `accessDenied: Bool` returns `true` for
-`.inaccessible` only, so any residual callers continue to behave correctly until migrated.
+All existing call sites of `accessDenied` are migrated to pattern-match on `NodeStatus` in
+the same commit. No shim property is kept.
 
 ### 3. `DirectoryScanner` wiring
 
@@ -196,15 +196,14 @@ This is a one-line change in `cacheURL`. Since a new root means a new cache file
 roots naturally falls back to "no cache found → offer a fresh scan", which is already handled
 by `hasCachedResult` / `loadCachedResult`.
 
-### 6. Cache format bump (v1 → v2)
+### 6. Cache format update
 
-`ScanCacheSerializer` must encode the new `NodeStatus` enum. Bump the serializer version
-from `v1` to `v2`.
-
-The loader rejects `v1` caches cleanly: on reading an unknown version byte, it returns
-`.failed("Unsupported cache version")`, removes the stale file (as it already does for corrupt
-caches in `DirectoryScanner.swift:444`), and falls back to a fresh scan. No migration — we are
-still pre-release, there are no users with persistent v1 caches worth preserving.
+`ScanCacheSerializer` is updated to encode the new `NodeStatus` enum. No version byte, no
+migration path, no graceful rejection of the old format: the project is pre-release and
+nobody has persistent caches on disk that need to survive. If an old cache file happens to
+be around, the existing corrupt-cache fallback in `DirectoryScanner.loadFromDisk`
+(`DirectoryScanner.swift:440`) will catch the decode failure, delete the file, and fall back
+to a fresh scan.
 
 ### 7. UI treatment
 
@@ -264,13 +263,8 @@ Requires adding a `scanPolicy` parameter to `performScan` (default = production)
 
 ### Integration — `ScanCacheSerializerTests`
 
-- **v2 round trip**: encode and decode a tree containing each of the 4 `NodeStatus` values,
-  verify statuses survive the round trip.
-- **v1 rejection**: hand-craft a byte stream starting with the old version marker, call
-  `ScanCacheSerializer.read(from:)`, expect a thrown error.
-- **`DirectoryScanner` fallback on v1**: write a v1 file at `cacheURL`, call
-  `loadCachedResult`, expect the file to be removed and `lastError` to be
-  `.cacheLoadFailed(...)` with an "unsupported version" reason.
+- **Round trip with all statuses**: encode and decode a tree containing each of the 4
+  `NodeStatus` values and verify statuses survive the round trip.
 
 ## Files touched
 
