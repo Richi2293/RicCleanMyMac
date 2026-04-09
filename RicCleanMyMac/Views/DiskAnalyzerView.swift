@@ -50,6 +50,18 @@ struct DiskAnalyzerView: View {
         .sheet(isPresented: $showSingleDeleteConfirmation) {
             singleDeleteSheet
         }
+        .alert(
+            scanner.lastError?.title ?? "",
+            isPresented: Binding(
+                get: { scanner.lastError != nil },
+                set: { if !$0 { scanner.lastError = nil } }
+            ),
+            presenting: scanner.lastError
+        ) { _ in
+            Button("OK", role: .cancel) { scanner.lastError = nil }
+        } message: { error in
+            Text(error.message)
+        }
     }
 
     // MARK: - Toolbar
@@ -174,9 +186,15 @@ struct DiskAnalyzerView: View {
             Text("Disk Analyzer")
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("Preparing disk analysis...")
+            Text("No scan results available.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+            Button {
+                scanner.scan(rootPath: "/")
+            } label: {
+                Label("Scan Now", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -262,9 +280,15 @@ struct DiskAnalyzerView: View {
             Image(systemName: result.isFullSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundColor(result.isFullSuccess ? .green : .orange)
-            Text("Freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if result.failedCount > 0 {
+                Text("\(result.successCount) deleted, \(result.failedCount) failed — freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
 
             Button {
                 withAnimation { deletionResult = nil }
