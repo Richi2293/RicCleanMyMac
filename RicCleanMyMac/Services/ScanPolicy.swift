@@ -1,19 +1,5 @@
 import Foundation
 
-/// How the scanner should treat a given path.
-enum Classification: Equatable {
-    /// Traverse normally, node is deletable.
-    case scanned
-
-    /// Traverse and measure, but the node (and descendants that don't override)
-    /// must not be deletable from the UI.
-    case readOnly
-
-    /// Do not traverse at all. The scanner emits a placeholder directory node
-    /// with `size == 0` so the user still sees that the path exists.
-    case skipped(reason: String)
-}
-
 /// Stateless classifier that decides, for any URL, whether the scanner should
 /// traverse it, traverse-but-mark-read-only, or skip it entirely.
 ///
@@ -22,6 +8,20 @@ enum Classification: Equatable {
 /// diverge. The type is a pure function of its input: no filesystem access,
 /// no mutable state.
 enum ScanPolicy {
+    /// How the scanner should treat a given path.
+    enum Classification: Equatable {
+        /// Traverse normally, node is deletable.
+        case scanned
+
+        /// Traverse and measure, but the node (and descendants that don't override)
+        /// must not be deletable from the UI.
+        case readOnly
+
+        /// Do not traverse at all. The scanner emits a placeholder directory node
+        /// with `size == 0` so the user still sees that the path exists.
+        case skipped(reason: String)
+    }
+
     /// Hard-skip list: these paths (and any descendants) are not traversed.
     /// Matches are applied after path normalization and lowercasing.
     private static let hardSkipPrefixes: [String] = [
@@ -117,10 +117,19 @@ enum ScanPolicy {
         // scannable when scanning from `/`.
         if lower.hasPrefix("/volumes/") {
             let resolvedBootName = (bootVolumeName ?? Self.bootVolumeName()).lowercased()
-            if !resolvedBootName.isEmpty {
-                let bootPrefix = "/volumes/" + resolvedBootName
-                if path(lower, isUnderPrefix: bootPrefix) { return .scanned }
+            if resolvedBootName.isEmpty {
+                // Boot volume name could not be resolved. We can't tell whether this
+                // path belongs to the boot volume or to an external drive, so prefer
+                // completeness over speed: scan it. A missing boot volume (with the
+                // user's own files) would be far worse than scanning a slow external
+                // mount. Falling through to the hard-skip loop here would hide the
+                // user's data with no signal.
+                return .scanned
             }
+            let bootPrefix = "/volumes/" + resolvedBootName
+            if path(lower, isUnderPrefix: bootPrefix) { return .scanned }
+            // Otherwise fall through: `/Volumes/<non-boot>` is caught by the
+            // hardSkipPrefixes loop below and skipped as an external mount.
         }
 
         for prefix in hardSkipPrefixes {
@@ -131,9 +140,7 @@ enum ScanPolicy {
 
         // `~/Library` handling — whitelist first, then soft-skip fallback.
         let homeLower = homeDirectory.standardizedFileURL.path.lowercased()
-        let libraryRoot = homeLower.hasSuffix("/")
-            ? homeLower + "library"
-            : homeLower + "/library"
+        let libraryRoot = homeLower + "/library"
         if path(lower, isUnderPrefix: libraryRoot) {
             let relative = String(lower.dropFirst(libraryRoot.count))
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
