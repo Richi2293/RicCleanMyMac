@@ -86,16 +86,19 @@ enum ScanPolicy {
     ///
     /// - Parameters:
     ///   - url: The URL to classify. It is standardized internally.
-    ///   - homeDirectory: The user's home directory (defaults to the current
-    ///     user's home; overridable for future tests).
-    ///   - bootVolumeName: The name of the boot volume under `/Volumes` that
-    ///     should be allowed through `/Volumes`'s hard-skip. When `nil`, the
-    ///     name is resolved lazily from the filesystem.
+    ///   - homeDirectory: The user's home directory. Must be supplied by
+    ///     the caller — resolving it via `FileManager` here would hide a
+    ///     per-call filesystem hit in an otherwise-stateless classifier.
+    ///   - bootVolumeName: The name of the boot volume under `/Volumes`
+    ///     that should be allowed through `/Volumes`'s hard-skip.
+    ///     Callers should resolve this once per scan and pass it here.
+    ///     Pass `nil` only when resolution is impossible — the classifier
+    ///     falls back to scanning `/Volumes/*` defensively in that case.
     /// - Returns: How the scanner should treat this path.
     static func classify(
         _ url: URL,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        bootVolumeName: String? = nil
+        homeDirectory: URL,
+        bootVolumeName: String?
     ) -> Classification {
         let normalized = url.standardizedFileURL.path
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))

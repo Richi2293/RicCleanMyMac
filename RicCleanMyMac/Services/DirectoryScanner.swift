@@ -21,8 +21,11 @@ final class DirectoryScanner: ObservableObject {
 
     /// The root path the scanner is currently working on (either actively
     /// scanning, loading from cache, or showing results for). `nil` when
-    /// no scan has started yet this session.
-    @Published private(set) var currentRootPath: String?
+    /// no scan has started yet this session. Not `@Published` on purpose:
+    /// the view owns the "selected root" state (`DiskAnalyzerView.selectedRoot`)
+    /// and all mutations flow through `startOrLoad`. Exposing this as a
+    /// publisher would create a second source of truth for the same value.
+    private(set) var currentRootPath: String?
 
     private let fileManager = FileManager.default
     private var scanTask: Task<Void, Never>?
@@ -52,18 +55,29 @@ final class DirectoryScanner: ObservableObject {
 
     // MARK: - Scanning
 
-    func scan(rootPath: String) {
+    /// Tear down any in-flight work and clear session-scoped state so a new
+    /// scan or cache load can begin on `rootPath`. Shared between
+    /// `scan(rootPath:)` and `loadCachedResult(forRootPath:)` to keep the
+    /// two entry points in lockstep — otherwise switching roots after a
+    /// successful scan (or during one) could leave stale state behind.
+    private func prepareForNewRoot(_ rootPath: String) {
         scanTask?.cancel()
+        scanTask = nil
         loadTask?.cancel()
         loadTask = nil
 
         currentRootPath = rootPath
-        isScanning = true
-        isLoadingCache = false
         scanResult = nil
         currentNode = nil
         selectedItems.removeAll()
         progress = ScanProgress(filesScanned: 0, currentPath: "")
+        isScanning = false
+        isLoadingCache = false
+    }
+
+    func scan(rootPath: String) {
+        prepareForNewRoot(rootPath)
+        isScanning = true
 
         let startTime = Date()
 
@@ -124,8 +138,7 @@ final class DirectoryScanner: ObservableObject {
     /// Load the cached scan result for the given root path asynchronously
     /// (off the main thread).
     func loadCachedResult(forRootPath rootPath: String) {
-        guard scanResult == nil, !isLoadingCache, !isScanning else { return }
-        currentRootPath = rootPath
+        prepareForNewRoot(rootPath)
         isLoadingCache = true
 
         let cacheURL = self.cacheURL(forRootPath: rootPath)
