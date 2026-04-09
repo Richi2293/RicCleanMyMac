@@ -29,7 +29,11 @@ enum ScanCacheError: Error {
 ///     nameLen         2 bytes    UInt16 UTF-8 byte length (max 65_535)
 ///     nameBytes       nameLen    UTF-8
 ///     size            8 bytes    Int64
-///     flags           1 byte     bit 0 = isDirectory, bit 1 = accessDenied
+///     flags           1 byte     bit 0 = isDirectory
+///                                bits 1-2 = status (00 = normal, 01 = readOnly,
+///                                                   10 = skipped, 11 = inaccessible)
+///     skipReasonLen   2 bytes    UInt16, present only when status == skipped
+///     skipReasonBytes variable   UTF-8, present only when status == skipped
 ///     childCount      4 bytes    UInt32, capped at `maxChildCount` on read
 ///     children        variable   recursive node records
 enum ScanCacheSerializer {
@@ -83,8 +87,25 @@ enum ScanCacheSerializer {
 
         var flags: UInt8 = 0
         if node.isDirectory { flags |= 1 }
-        if node.accessDenied { flags |= 2 }
+
+        let statusBits: UInt8
+        switch node.status {
+        case .normal:       statusBits = 0b00
+        case .readOnly:     statusBits = 0b01
+        case .skipped:      statusBits = 0b10
+        case .inaccessible: statusBits = 0b11
+        }
+        flags |= (statusBits << 1)
         data.appendUInt8(flags)
+
+        if case .skipped(let reason) = node.status {
+            let reasonBytes = Array(reason.utf8)
+            guard reasonBytes.count <= Int(UInt16.max) else {
+                throw ScanCacheError.valueTooLarge("skip reason UTF-8 length \(reasonBytes.count) exceeds UInt16 range")
+            }
+            data.appendUInt16(UInt16(reasonBytes.count))
+            data.append(contentsOf: reasonBytes)
+        }
 
         let children = node.children ?? []
         guard children.count <= Int(UInt32.max) else {
@@ -138,17 +159,34 @@ enum ScanCacheSerializer {
 
         let size = try reader.readInt64()
         let flags = try reader.readUInt8()
+
+        let isDirectory = flags & 1 != 0
+        let statusBits = (flags >> 1) & 0b11
+        let status: NodeStatus
+        switch statusBits {
+        case 0b00: status = .normal
+        case 0b01: status = .readOnly
+        case 0b10:
+            let reasonLen = try reader.readUInt16()
+            let reasonBytes = try reader.readBytes(Int(reasonLen))
+            guard let reason = String(bytes: reasonBytes, encoding: .utf8) else {
+                throw ScanCacheError.corruptedString
+            }
+            status = .skipped(reason: reason)
+        case 0b11: status = .inaccessible
+        default:
+            // Unreachable because statusBits is two bits, but keep the compiler happy.
+            status = .normal
+        }
+
         let childCount = try reader.readUInt32()
         guard childCount <= maxChildCount else {
             throw ScanCacheError.childCountTooLarge(childCount)
         }
 
-        let isDirectory = flags & 1 != 0
-        let accessDenied = flags & 2 != 0
-
         if !isDirectory {
             // Ignore any child entries on a leaf (should be 0 in a valid file).
-            return FileNode.file(name: name, size: size)
+            return FileNode.file(name: name, size: size, status: status)
         }
 
         var children: [FileNode] = []
@@ -162,7 +200,7 @@ enum ScanCacheSerializer {
             name: name,
             children: children,
             size: size,
-            accessDenied: accessDenied
+            status: status
         )
     }
 }
