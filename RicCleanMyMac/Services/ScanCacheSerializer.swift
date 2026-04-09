@@ -4,19 +4,60 @@ enum ScanCacheError: Error {
     case invalidMagic
     case unsupportedVersion(UInt8)
     case truncatedData
+    case corruptedString
+    case childCountTooLarge(UInt32)
+    case trailingData
+    case valueTooLarge(String)
 }
 
+/// Custom binary format for persisting directory scan results.
+///
+/// All integers are little-endian. The file is LZFSE-compressed externally by
+/// `DirectoryScanner`, so this serializer works on raw (decompressed) bytes.
+///
+/// File layout:
+///     magic           4 bytes    ASCII "RCSN"
+///     version         1 byte     current = 1
+///     totalFiles      4 bytes    UInt32 (header-only; authoritative size is derived from the tree)
+///     totalDirs       4 bytes    UInt32
+///     legacyTotalSize 8 bytes    Int64 (written for backward compatibility; ignored on read)
+///     scanDuration    8 bytes    Float64 seconds
+///     scanDate        8 bytes    Float64 secondsSinceReferenceDate
+///     rootNode        variable   see node layout
+///
+/// Node layout (depth-first):
+///     nameLen         2 bytes    UInt16 UTF-8 byte length (max 65_535)
+///     nameBytes       nameLen    UTF-8
+///     size            8 bytes    Int64
+///     flags           1 byte     bit 0 = isDirectory, bit 1 = accessDenied
+///     childCount      4 bytes    UInt32, capped at `maxChildCount` on read
+///     children        variable   recursive node records
 enum ScanCacheSerializer {
     private static let magic: [UInt8] = [0x52, 0x43, 0x53, 0x4E] // "RCSN"
     private static let currentVersion: UInt8 = 1
 
+    /// Upper bound on children per directory when reading a cache file, to prevent
+    /// OOM on a corrupted `childCount` field. Ten million is well above any sane
+    /// filesystem directory cardinality.
+    private static let maxChildCount: UInt32 = 10_000_000
+
+    /// Rough per-node byte estimate used to pre-size the output buffer.
+    /// Average: 2 (nameLen) + ~16 (name) + 8 (size) + 1 (flags) + 4 (childCount) + slack.
+    private static let estimatedBytesPerNode = 36
+
     // MARK: - Write
 
-    static func write(_ result: DirectoryScanResult) -> Data {
-        let estimatedSize = (result.totalFiles + result.totalDirectories) * 36
+    static func write(_ result: DirectoryScanResult) throws -> Data {
+        guard result.totalFiles <= Int(UInt32.max) else {
+            throw ScanCacheError.valueTooLarge("totalFiles exceeds UInt32 range")
+        }
+        guard result.totalDirectories <= Int(UInt32.max) else {
+            throw ScanCacheError.valueTooLarge("totalDirectories exceeds UInt32 range")
+        }
+
+        let estimatedSize = (result.totalFiles + result.totalDirectories) * estimatedBytesPerNode
         var data = Data(capacity: estimatedSize)
 
-        // Header
         data.append(contentsOf: magic)
         data.appendUInt8(currentVersion)
         data.appendUInt32(UInt32(result.totalFiles))
@@ -25,36 +66,34 @@ enum ScanCacheSerializer {
         data.appendFloat64(result.scanDuration)
         data.appendFloat64(result.scanDate.timeIntervalSinceReferenceDate)
 
-        // Tree (depth-first)
-        writeNode(result.root, to: &data)
+        try writeNode(result.root, to: &data)
 
         return data
     }
 
-    private static func writeNode(_ node: FileNode, to data: inout Data) {
-        // Name
+    private static func writeNode(_ node: FileNode, to data: inout Data) throws {
         let nameBytes = Array(node.name.utf8)
+        guard nameBytes.count <= Int(UInt16.max) else {
+            throw ScanCacheError.valueTooLarge("node name UTF-8 length \(nameBytes.count) exceeds UInt16 range")
+        }
         data.appendUInt16(UInt16(nameBytes.count))
         data.append(contentsOf: nameBytes)
 
-        // Size
         data.appendInt64(node.size)
 
-        // Flags: bit 0 = isDirectory, bit 1 = accessDenied
         var flags: UInt8 = 0
         if node.isDirectory { flags |= 1 }
         if node.accessDenied { flags |= 2 }
         data.appendUInt8(flags)
 
-        // Child count
-        let childCount = UInt32(node.children?.count ?? 0)
-        data.appendUInt32(childCount)
+        let children = node.children ?? []
+        guard children.count <= Int(UInt32.max) else {
+            throw ScanCacheError.valueTooLarge("child count \(children.count) exceeds UInt32 range")
+        }
+        data.appendUInt32(UInt32(children.count))
 
-        // Children (depth-first recursion)
-        if let children = node.children {
-            for child in children {
-                writeNode(child, to: &data)
-            }
+        for child in children {
+            try writeNode(child, to: &data)
         }
     }
 
@@ -63,7 +102,6 @@ enum ScanCacheSerializer {
     static func read(from data: Data) throws -> DirectoryScanResult {
         var reader = BinaryReader(data: data)
 
-        // Header
         let fileMagic = try reader.readBytes(4)
         guard fileMagic == magic else { throw ScanCacheError.invalidMagic }
 
@@ -72,16 +110,18 @@ enum ScanCacheSerializer {
 
         let totalFiles = try reader.readUInt32()
         let totalDirectories = try reader.readUInt32()
-        let totalSize = try reader.readInt64()
+        _ = try reader.readInt64() // legacy totalSize field; derived from root.size now
         let scanDuration = try reader.readFloat64()
         let scanDate = Date(timeIntervalSinceReferenceDate: try reader.readFloat64())
 
-        // Tree
-        let root = try readNode(from: &reader, parent: nil)
+        let root = try readNode(from: &reader)
+
+        guard reader.offset == reader.byteCount else {
+            throw ScanCacheError.trailingData
+        }
 
         return DirectoryScanResult(
             root: root,
-            totalSize: totalSize,
             totalFiles: Int(totalFiles),
             totalDirectories: Int(totalDirectories),
             scanDuration: scanDuration,
@@ -89,34 +129,41 @@ enum ScanCacheSerializer {
         )
     }
 
-    private static func readNode(from reader: inout BinaryReader, parent: FileNode?) throws -> FileNode {
+    private static func readNode(from reader: inout BinaryReader) throws -> FileNode {
         let nameLength = try reader.readUInt16()
         let nameBytes = try reader.readBytes(Int(nameLength))
-        let name = String(bytes: nameBytes, encoding: .utf8) ?? ""
+        guard let name = String(bytes: nameBytes, encoding: .utf8) else {
+            throw ScanCacheError.corruptedString
+        }
 
         let size = try reader.readInt64()
         let flags = try reader.readUInt8()
         let childCount = try reader.readUInt32()
-
-        let node = FileNode(
-            name: name,
-            size: size,
-            isDirectory: flags & 1 != 0,
-            accessDenied: flags & 2 != 0
-        )
-        node.parent = parent
-
-        if childCount > 0 {
-            var children: [FileNode] = []
-            children.reserveCapacity(Int(childCount))
-            for _ in 0..<childCount {
-                let child = try readNode(from: &reader, parent: node)
-                children.append(child)
-            }
-            node.children = children
+        guard childCount <= maxChildCount else {
+            throw ScanCacheError.childCountTooLarge(childCount)
         }
 
-        return node
+        let isDirectory = flags & 1 != 0
+        let accessDenied = flags & 2 != 0
+
+        if !isDirectory {
+            // Ignore any child entries on a leaf (should be 0 in a valid file).
+            return FileNode.file(name: name, size: size)
+        }
+
+        var children: [FileNode] = []
+        if childCount > 0 {
+            children.reserveCapacity(Int(childCount))
+            for _ in 0..<childCount {
+                children.append(try readNode(from: &reader))
+            }
+        }
+        return FileNode.directory(
+            name: name,
+            children: children,
+            size: size,
+            accessDenied: accessDenied
+        )
     }
 }
 
@@ -126,8 +173,20 @@ private struct BinaryReader {
     let data: Data
     var offset: Int = 0
 
+    var byteCount: Int { data.count }
+
+    init(data: Data) {
+        // Force `startIndex == 0` so offset-based access is unambiguous. `Data`
+        // slices inherit the parent's indices, and `loadUnaligned(fromByteOffset:)`
+        // is 0-based on the underlying buffer — mixing the two would read the
+        // wrong bytes on a sliced input.
+        self.data = data.startIndex == 0 ? data : Data(data)
+    }
+
     mutating func readBytes(_ count: Int) throws -> [UInt8] {
-        guard offset + count <= data.count else { throw ScanCacheError.truncatedData }
+        guard count >= 0, offset + count <= data.count else {
+            throw ScanCacheError.truncatedData
+        }
         let bytes = data.withUnsafeBytes { buffer in
             Array(buffer[offset..<offset + count])
         }
@@ -137,11 +196,17 @@ private struct BinaryReader {
 
     mutating func readUInt8() throws -> UInt8 {
         guard offset + 1 <= data.count else { throw ScanCacheError.truncatedData }
-        let value = data[offset]
+        let value = data.withUnsafeBytes { buffer in
+            buffer.load(fromByteOffset: offset, as: UInt8.self)
+        }
         offset += 1
         return value
     }
 
+    // Note: `loadUnaligned` is required because `Data.withUnsafeBytes` does not
+    // guarantee natural alignment of the underlying storage — using `load` here
+    // crashes on arm64 when the offset is not a multiple of the type's stride.
+    // See commit 925e7d2. Do not "simplify" these to `load`.
     mutating func readUInt16() throws -> UInt16 {
         guard offset + 2 <= data.count else { throw ScanCacheError.truncatedData }
         let value = data.withUnsafeBytes { buffer in
