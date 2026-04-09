@@ -37,10 +37,11 @@ struct DiskAnalyzerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache {
-                if scanner.hasCachedResult {
-                    scanner.loadCachedResult()
+                let root = "/"
+                if scanner.hasCachedResult(forRootPath: root) {
+                    scanner.loadCachedResult(forRootPath: root)
                 } else {
-                    scanner.scan(rootPath: "/")
+                    scanner.scan(rootPath: root)
                 }
             }
         }
