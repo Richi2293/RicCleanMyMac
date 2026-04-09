@@ -2,6 +2,11 @@ import Foundation
 
 /// The scanner's verdict on a node, capturing both policy decisions
 /// (`.readOnly`, `.skipped`) and runtime failures (`.inaccessible`).
+///
+/// Distinct from `ScanPolicy.Classification`: that type drives the
+/// traversal decision in `buildTree`; this type records the outcome on
+/// the persisted node. They deliberately carry parallel-looking cases
+/// so that mapping from one to the other at scan time is mechanical.
 enum NodeStatus: Equatable {
     /// Traversed normally. Deletable from the UI.
     case normal

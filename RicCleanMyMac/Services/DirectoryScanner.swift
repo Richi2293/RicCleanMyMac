@@ -307,11 +307,18 @@ final class DirectoryScanner: ObservableObject {
         for (index, node) in nodes.enumerated() {
             guard isNodeDeletable(node) else {
                 let reason: String
-                switch node.status {
-                case .readOnly: reason = "Path is read-only"
-                case .skipped: reason = "Path is skipped by scan policy"
-                case .inaccessible: reason = "Path could not be read during the scan"
-                case .normal: reason = "Path is the scan root"
+                if node === scanResult?.root {
+                    reason = "Path is the scan root"
+                } else {
+                    switch node.status {
+                    case .readOnly: reason = "Path is read-only"
+                    case .skipped: reason = "Path is skipped by scan policy"
+                    case .inaccessible: reason = "Path could not be read during the scan"
+                    case .normal:
+                        // A .normal node that is not the root and is not deletable
+                        // is a contract violation of isNodeDeletable.
+                        reason = "Path is not deletable"
+                    }
                 }
                 logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
                 failures.append(DeletionFailure(path: node.path, reason: reason))
