@@ -8,6 +8,7 @@ struct DiskAnalyzerView: View {
     @State private var nodeToDelete: FileNode?
     @State private var deletionResult: DeletionResult?
     @State private var isDeleting = false
+    @State private var selectedRoot: DiskAnalyzerRoot = DiskAnalyzerRoot.load()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,12 +38,7 @@ struct DiskAnalyzerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache {
-                let root = "/"
-                if scanner.hasCachedResult(forRootPath: root) {
-                    scanner.loadCachedResult(forRootPath: root)
-                } else {
-                    scanner.scan(rootPath: root)
-                }
+                startOrLoad(for: selectedRoot)
             }
         }
         .sheet(isPresented: $showConfirmation) {
@@ -69,9 +65,11 @@ struct DiskAnalyzerView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
+            rootPicker
+
             if scanner.scanResult != nil {
                 Button {
-                    scanner.scan(rootPath: "/")
+                    rescanCurrentRoot()
                 } label: {
                     Label("Re-scan", systemImage: "arrow.clockwise")
                 }
@@ -191,9 +189,9 @@ struct DiskAnalyzerView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             Button {
-                scanner.scan(rootPath: "/")
+                startOrLoad(for: selectedRoot)
             } label: {
-                Label("Scan Now", systemImage: "magnifyingglass")
+                Label("Scan \(selectedRoot.label)", systemImage: "magnifyingglass")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -318,6 +316,53 @@ struct DiskAnalyzerView: View {
             isDeleting = false
             nodeToDelete = nil
             deletionResult = result
+        }
+    }
+
+    // MARK: - Root selection
+
+    /// Start a scan (or load the cache) for the currently selected root.
+    /// Persists the choice so the next app launch reopens the same root.
+    private func startOrLoad(for root: DiskAnalyzerRoot) {
+        selectedRoot = root
+        root.save()
+        let path = root.path
+        if scanner.hasCachedResult(forRootPath: path) {
+            scanner.loadCachedResult(forRootPath: path)
+        } else {
+            scanner.scan(rootPath: path)
+        }
+    }
+
+    /// Force a fresh re-scan of the current root, ignoring any cache.
+    private func rescanCurrentRoot() {
+        scanner.scan(rootPath: selectedRoot.path)
+    }
+
+    @ViewBuilder
+    private var rootPicker: some View {
+        Menu {
+            Button("Home") { startOrLoad(for: .home) }
+            Button("Entire disk") { startOrLoad(for: .entireDisk) }
+            Divider()
+            Button("Choose folder…") { pickCustomRoot() }
+        } label: {
+            Label(selectedRoot.label, systemImage: "folder")
+                .font(.subheadline)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(minWidth: 120)
+    }
+
+    private func pickCustomRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Scan this folder"
+        panel.message = "Pick a folder to scan."
+        if panel.runModal() == .OK, let url = panel.url {
+            startOrLoad(for: .custom(path: url.path))
         }
     }
 }
