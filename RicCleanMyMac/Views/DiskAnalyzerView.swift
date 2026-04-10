@@ -9,10 +9,23 @@ struct DiskAnalyzerView: View {
     @State private var deletionResult: DeletionResult?
     @State private var isDeleting = false
     @State private var selectedRoot: DiskAnalyzerRoot = DiskAnalyzerRoot.load()
+    @State private var showLargeFiles = false
+    @State private var largeFileCategory: SmartCategory?
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+            Divider()
+
+            DiskDashboardHeader(
+                diskSpace: scanner.diskSpace,
+                smartCategories: scanner.smartCategories,
+                isScanComplete: scanner.scanResult != nil,
+                isScanning: scanner.isScanning,
+                onCategoryTapped: { category in
+                    handleCategoryTap(category)
+                }
+            )
             Divider()
 
             if scanner.isLoadingCache {
@@ -37,6 +50,7 @@ struct DiskAnalyzerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            scanner.loadDiskSpace()
             if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache {
                 startOrLoad(for: selectedRoot)
             }
@@ -58,6 +72,21 @@ struct DiskAnalyzerView: View {
             Button("OK", role: .cancel) { scanner.lastError = nil }
         } message: { error in
             Text(error.message)
+        }
+        .sheet(isPresented: $showLargeFiles) {
+            if let category = largeFileCategory,
+               let root = scanner.scanResult?.root {
+                LargeFilesSheet(
+                    nodes: root.findNodes(withIDs: Set(category.nodeIDs)),
+                    onNavigate: { node in
+                        showLargeFiles = false
+                        if let parent = node.parent {
+                            scanner.navigateTo(parent)
+                        }
+                    },
+                    onDismiss: { showLargeFiles = false }
+                )
+            }
         }
     }
 
@@ -240,6 +269,16 @@ struct DiskAnalyzerView: View {
 
     // MARK: - Helpers
 
+    private func handleCategoryTap(_ category: SmartCategory) {
+        if category.id == "largeFiles" {
+            largeFileCategory = category
+            showLargeFiles = true
+        } else if let firstID = category.nodeIDs.first,
+                  let node = scanner.scanResult?.root.findNodes(withIDs: Set([firstID])).first {
+            scanner.navigateTo(node)
+        }
+    }
+
     private var selectedNodes: [FileNode] {
         scanner.currentNode?.findNodes(withIDs: scanner.selectedItems) ?? []
     }
@@ -369,5 +408,52 @@ struct DiskAnalyzerView: View {
         if panel.runModal() == .OK, let url = panel.url {
             startOrLoad(for: .custom(path: url.path))
         }
+    }
+}
+
+private struct LargeFilesSheet: View {
+    let nodes: [FileNode]
+    let onNavigate: (FileNode) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Large files (> 1 GB)")
+                    .font(.headline)
+                Spacer()
+                Button("Close") { onDismiss() }
+                    .buttonStyle(.plain)
+            }
+            .padding()
+
+            Divider()
+
+            List(sortedNodes, id: \.id) { node in
+                Button {
+                    onNavigate(node)
+                } label: {
+                    HStack {
+                        Image(systemName: node.icon)
+                            .foregroundColor(.secondary)
+                        Text(node.name)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(node.formattedSize)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.accentColor)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 500, height: 400)
+    }
+
+    private var sortedNodes: [FileNode] {
+        nodes.sorted { $0.size > $1.size }
     }
 }
