@@ -142,6 +142,104 @@ final class FileNode: Identifiable {
         return result
     }
 
+    // MARK: - Smart categories
+
+    func extractSmartCategories() -> [SmartCategory] {
+        var cacheSize: Int64 = 0
+        var cacheIDs: [ObjectIdentifier] = []
+        var logSize: Int64 = 0
+        var logIDs: [ObjectIdentifier] = []
+        var tempSize: Int64 = 0
+        var tempIDs: [ObjectIdentifier] = []
+        var downloadsSize: Int64 = 0
+        var downloadsIDs: [ObjectIdentifier] = []
+        var largeFileSize: Int64 = 0
+        var largeFileIDs: [ObjectIdentifier] = []
+
+        let largeFileThreshold: Int64 = 1_073_741_824 // 1 GB
+
+        func walk(_ node: FileNode) {
+            if node.isDirectory {
+                let lower = node.name.lowercased()
+
+                if lower == "caches" || lower == ".cache" {
+                    cacheSize += node.size
+                    cacheIDs.append(node.id)
+                    return // don't recurse — whole subtree counted
+                }
+                if lower == "logs" {
+                    logSize += node.size
+                    logIDs.append(node.id)
+                    return
+                }
+                if lower == "tmp" || lower == "temporary items" {
+                    tempSize += node.size
+                    tempIDs.append(node.id)
+                    return
+                }
+                if lower == "downloads" && node.parent?.name.lowercased() != "downloads" {
+                    downloadsSize += node.size
+                    downloadsIDs.append(node.id)
+                    return
+                }
+
+                for child in node.children ?? [] {
+                    walk(child)
+                }
+            } else {
+                // Leaf file: check for .log extension
+                let ext = (node.name as NSString).pathExtension.lowercased()
+                if ext == "log" {
+                    logSize += node.size
+                    logIDs.append(node.id)
+                }
+                if node.size >= largeFileThreshold {
+                    largeFileSize += node.size
+                    largeFileIDs.append(node.id)
+                }
+            }
+        }
+
+        for child in children ?? [] {
+            walk(child)
+        }
+
+        var categories: [SmartCategory] = []
+
+        if cacheSize > 0 {
+            categories.append(SmartCategory(
+                id: "cache", name: "Cache", icon: "archivebox",
+                totalSize: cacheSize, nodeIDs: cacheIDs
+            ))
+        }
+        if logSize > 0 {
+            categories.append(SmartCategory(
+                id: "log", name: "Log", icon: "doc.text",
+                totalSize: logSize, nodeIDs: logIDs
+            ))
+        }
+        if tempSize > 0 {
+            categories.append(SmartCategory(
+                id: "temp", name: "Temp", icon: "clock.arrow.circlepath",
+                totalSize: tempSize, nodeIDs: tempIDs
+            ))
+        }
+        if downloadsSize > 0 {
+            categories.append(SmartCategory(
+                id: "downloads", name: "Downloads", icon: "arrow.down.circle",
+                totalSize: downloadsSize, nodeIDs: downloadsIDs
+            ))
+        }
+        if largeFileSize > 0 {
+            categories.append(SmartCategory(
+                id: "largeFiles", name: "Large files", icon: "doc.badge.ellipsis",
+                totalSize: largeFileSize, nodeIDs: largeFileIDs
+            ))
+        }
+
+        return categories.sorted { $0.totalSize > $1.totalSize }
+    }
+
     private func fileIcon(for name: String) -> String {
         let ext = (name as NSString).pathExtension.lowercased()
         switch ext {
