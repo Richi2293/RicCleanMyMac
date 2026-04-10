@@ -100,7 +100,7 @@ struct DiskDashboardHeader: View {
             Circle()
                 .stroke(Color.gray.opacity(0.2), lineWidth: 6)
             Circle()
-                .trim(from: 0, to: ds.usedPercentage)
+                .trim(from: 0, to: min(ds.usedPercentage, 1.0))
                 .stroke(
                     gaugeColor(for: ds.usedPercentage),
                     style: StrokeStyle(lineWidth: 6, lineCap: .round)

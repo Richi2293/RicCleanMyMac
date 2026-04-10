@@ -79,6 +79,7 @@ final class DirectoryScanner: ObservableObject {
     }
 
     func loadDiskSpace() {
+        guard diskSpace == nil else { return }
         Task {
             let space = await DiskAnalyzer().getDiskSpace()
             self.diskSpace = space
