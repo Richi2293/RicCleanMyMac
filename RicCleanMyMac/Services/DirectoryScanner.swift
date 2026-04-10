@@ -18,6 +18,8 @@ final class DirectoryScanner: ObservableObject {
     @Published var selectedItems: Set<ObjectIdentifier> = []
     @Published var deleteMode: DeleteMode = .trash
     @Published var lastError: ScanError?
+    @Published var diskSpace: DiskSpace?
+    @Published var smartCategories: [SmartCategory] = []
 
     /// The root path the scanner is currently working on (either actively
     /// scanning, loading from cache, or showing results for). `nil` when
@@ -70,9 +72,17 @@ final class DirectoryScanner: ObservableObject {
         scanResult = nil
         currentNode = nil
         selectedItems.removeAll()
+        smartCategories = []
         progress = ScanProgress(filesScanned: 0, currentPath: "")
         isScanning = false
         isLoadingCache = false
+    }
+
+    func loadDiskSpace() {
+        Task {
+            let space = await DiskAnalyzer().getDiskSpace()
+            self.diskSpace = space
+        }
     }
 
     func scan(rootPath: String) {
@@ -111,6 +121,7 @@ final class DirectoryScanner: ObservableObject {
     private func handleScanSuccess(_ result: DirectoryScanResult) async {
         scanResult = result
         currentNode = result.root
+        smartCategories = result.root.extractSmartCategories()
         isScanning = false
 
         // Save happens on a detached task so the main thread is not blocked by
@@ -157,6 +168,7 @@ final class DirectoryScanner: ObservableObject {
             case .success(let result):
                 self.scanResult = result
                 self.currentNode = result.root
+                self.smartCategories = result.root.extractSmartCategories()
             case .notFound:
                 // No cache yet — UI handles this by offering a fresh scan.
                 break
@@ -206,9 +218,9 @@ final class DirectoryScanner: ObservableObject {
                 .volumeName
             let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
 
-            func buildTree(at url: URL) -> FileNode {
+            func buildTree(at url: URL, nameOverride: String? = nil) -> FileNode {
                 directoriesCount += 1
-                let name = url.lastPathComponent
+                let name = nameOverride ?? url.lastPathComponent
 
                 let contents: [URL]
                 do {
@@ -306,7 +318,7 @@ final class DirectoryScanner: ObservableObject {
                 return .failed("Root path does not exist or is not a directory: \(rootPath)")
             }
 
-            let root = buildTree(at: rootURL)
+            let root = buildTree(at: rootURL, nameOverride: rootURL.path)
 
             if Task.isCancelled { return .cancelled }
 
@@ -384,7 +396,9 @@ final class DirectoryScanner: ObservableObject {
         var jobs: [DeletionJob] = []
         var failures: [DeletionFailure] = []
 
+        logger.info("deleteNodes called with \(nodes.count) node(s), deleteMode=\(String(describing: self.deleteMode), privacy: .public)")
         for (index, node) in nodes.enumerated() {
+            logger.info("  node[\(index)]: name=\(node.name, privacy: .public) path=\(node.path, privacy: .public) isDir=\(node.isDirectory) status=\(String(describing: node.status), privacy: .public)")
             guard isNodeDeletable(node) else {
                 let reason: String
                 if node === scanResult?.root {
@@ -400,20 +414,30 @@ final class DirectoryScanner: ObservableObject {
                         reason = "Path is not deletable"
                     }
                 }
-                logger.warning("Skipped non-deletable path: \(node.path, privacy: .public)")
+                logger.warning("Skipped non-deletable path: \(node.path, privacy: .public) reason=\(reason, privacy: .public)")
                 failures.append(DeletionFailure(path: node.path, reason: reason))
                 continue
             }
             jobs.append(DeletionJob(index: index, path: node.path, size: node.size))
         }
+        logger.info("Prepared \(jobs.count) deletion job(s), \(failures.count) pre-skipped")
 
         let deleteMode = self.deleteMode
         let outcomes: [Outcome] = await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
             var results: [Outcome] = []
             results.reserveCapacity(jobs.count)
+            let deleteLogger = Logger(
+                subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac",
+                category: "DirectoryScanner.delete"
+            )
             for job in jobs {
-                guard fm.fileExists(atPath: job.path) else {
+                let exists = fm.fileExists(atPath: job.path)
+                let isReadable = fm.isReadableFile(atPath: job.path)
+                let isDeletable = fm.isDeletableFile(atPath: job.path)
+                deleteLogger.info("Job: path=\(job.path, privacy: .public) exists=\(exists) readable=\(isReadable) deletable=\(isDeletable) mode=\(String(describing: deleteMode), privacy: .public)")
+                guard exists else {
+                    deleteLogger.error("fileExists returned false for: \(job.path, privacy: .public)")
                     results.append(.failure(DeletionFailure(
                         path: job.path,
                         reason: "Item no longer exists"
@@ -427,8 +451,10 @@ final class DirectoryScanner: ObservableObject {
                     case .permanent:
                         try fm.removeItem(atPath: job.path)
                     }
+                    deleteLogger.info("Successfully deleted: \(job.path, privacy: .public)")
                     results.append(.success(index: job.index, freed: job.size))
                 } catch {
+                    deleteLogger.error("Delete failed for \(job.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     results.append(.failure(DeletionFailure(
                         path: job.path,
                         reason: error.localizedDescription
