@@ -41,32 +41,44 @@
 
 ### 2. Unit Testing
 
+Unit tests live in the `RicCleanMyMacTests` target and use Swift Testing (`import Testing`, `@Test`, `#expect`).
+They cover models and services only: there are no UI tests, so checks of the interface stay manual.
+Tests run locally, there is no CI.
+
+#### Running the Tests
+- **In Xcode**: Product → Test (⌘U)
+- **From the terminal**:
+  ```bash
+  xcodebuild test -scheme RicCleanMyMac -destination 'platform=macOS,arch=arm64'
+  ```
+
+The tests are hosted by the app: Xcode launches it while they run. In that case the app shows an empty window and starts none of its own work, so nothing competes with the tests (see `RicCleanMyMacApp.isHostingTests`).
+
 #### Test Structure
 ```
 RicCleanMyMacTests/
-├── FileScannerTests.swift
-├── CleanupServiceTests.swift
-├── DiskAnalyzerTests.swift
-└── FileManagerExtensionsTests.swift
+├── Support/
+│   ├── TemporaryDirectory.swift   folders on disk owned by a test
+│   └── TestHelpers.swift          FileNode lookup, waitUntil for async work
+├── Models/
+│   ├── FileNodeTests.swift        protection flags, sizes, paths
+│   └── SmartCategoryTests.swift   dashboard categories
+└── Services/
+    ├── ScanPolicyTests.swift          skipped, read-only and scanned zones
+    ├── ScanCacheSerializerTests.swift cache round trip and limits
+    └── DirectoryScannerTests.swift    deletion rules, scans and deletions on disk
 ```
 
-#### Tests to Implement
+Folders under `RicCleanMyMacTests/` are synchronized with the project: a new `.swift` file there is part of the target, with no change to the project file.
 
-**FileScannerTests**:
-- Test scanning existing directory
-- Test scanning non-existent directory
-- Test correct size calculation
-- Test hidden file enumeration
-
-**CleanupServiceTests**:
-- Test path validation (whitelist)
-- Test rejection of deletion outside whitelist
-- Test correct deletion after confirmation
-- Test error handling during deletion
-
-**DiskAnalyzerTests**:
-- Test available disk space calculation
-- Test size formatting
+#### Writing New Tests
+- Put each test file in the folder that matches the app folder of the code it tests.
+- Prefer in-memory trees (`FileNode.file`, `FileNode.directory`) when the disk is not the point of the test.
+- For scans on disk, create folders with `TemporaryDirectory.scannable()`. It uses `/tmp`, because `ScanPolicy` skips the system temporary folder.
+- Give every `DirectoryScanner` its own cache folder, created with `TemporaryDirectory.inSystemTemporaryFolder()` and passed as `DirectoryScanner(cacheDirectory: cacheFolder.url)`. Never use the default, which is the app's real cache in Application Support.
+- Use `deleteMode = .permanent` in deletion tests, so test files do not end up in the Trash.
+- Remove the folders with `remove()` in a `defer`, right after creating them.
+- End every test that scans or deletes with `await scanner.waitForBackgroundWork()`: the scanner saves its cache in the background, and the save could recreate the cache folder after `remove()`.
 
 ### 3. Testing with Realistic Data
 
