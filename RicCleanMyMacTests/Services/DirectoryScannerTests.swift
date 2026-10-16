@@ -42,7 +42,7 @@ struct DirectoryScannerDeletionRulesTests {
 /// the save could recreate the cache folder after `remove()`.
 @Suite("DirectoryScanner on disk", .serialized)
 struct DirectoryScannerDiskTests {
-    @Test("A scan measures allocated sizes, counts hard links once and marks unreadable folders")
+    @Test("A scan counts hard links once and marks unreadable folders")
     func scanMeasuresTheTree() async throws {
         let folder = try TemporaryDirectory.scannable()
         let cache = try TemporaryDirectory.inSystemTemporaryFolder()
