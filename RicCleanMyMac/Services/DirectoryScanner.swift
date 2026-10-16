@@ -21,6 +21,11 @@ final class DirectoryScanner: ObservableObject {
     @Published var diskSpace: DiskSpace?
     @Published var smartCategories: [SmartCategory] = []
 
+    /// Bumped every time the current tree is mutated in place (deletion).
+    /// Views that cache data derived from a node (the sunburst) observe it,
+    /// because the node itself stays the same object.
+    @Published private(set) var treeRevision = 0
+
     /// The root path the scanner is currently working on (either actively
     /// scanning, loading from cache, or showing results for). `nil` when
     /// no scan has started yet this session. Not `@Published` on purpose:
@@ -32,6 +37,11 @@ final class DirectoryScanner: ObservableObject {
     private let fileManager = FileManager.default
     private var scanTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var diskSpaceTask: Task<Void, Never>?
+
+    /// The most recent cache save. Saves read the whole tree off the main
+    /// thread, so every in-place mutation of the tree must wait for it first.
+    private var saveTask: Task<Void, Never>?
 
     /// Returns the cache URL for a given scan root. The filename embeds a
     /// short hash of the root so different roots never collide.
@@ -78,11 +88,15 @@ final class DirectoryScanner: ObservableObject {
         isLoadingCache = false
     }
 
-    func loadDiskSpace() {
-        guard diskSpace == nil else { return }
-        Task {
-            let space = await DiskAnalyzer().getDiskSpace()
-            self.diskSpace = space
+    /// Reads the boot volume's capacity. Without `forceRefresh` it runs only
+    /// once per session; deletions pass `true` to show the freed space.
+    func loadDiskSpace(forceRefresh: Bool = false) {
+        guard diskSpaceTask == nil, forceRefresh || diskSpace == nil else { return }
+        diskSpaceTask = Task {
+            if let space = await DiskAnalyzer().getDiskSpace() {
+                diskSpace = space
+            }
+            diskSpaceTask = nil
         }
     }
 
@@ -109,7 +123,7 @@ final class DirectoryScanner: ObservableObject {
 
             switch outcome {
             case .success(let result):
-                await self.handleScanSuccess(result)
+                self.handleScanSuccess(result)
             case .failed(let reason):
                 self.isScanning = false
                 self.lastError = .scanFailed(reason)
@@ -119,24 +133,30 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
-    private func handleScanSuccess(_ result: DirectoryScanResult) async {
+    private func handleScanSuccess(_ result: DirectoryScanResult) {
         scanResult = result
         currentNode = result.root
         smartCategories = result.root.extractSmartCategories()
         isScanning = false
+        scheduleCacheSave(result)
+    }
 
-        // Save happens on a detached task so the main thread is not blocked by
-        // serialization and LZFSE compression (both are CPU-bound on large trees).
+    /// Saves `result` to the cache of the current root, after any save still
+    /// running. The work happens off the main thread because serialization
+    /// and LZFSE compression are CPU-bound on large trees.
+    private func scheduleCacheSave(_ result: DirectoryScanResult) {
         guard let rootPath = currentRootPath,
               let cacheURL = cacheURL(forRootPath: rootPath) else { return }
-        Task.detached(priority: .utility) { [weak self] in
+        let previousSave = saveTask
+        saveTask = Task { [weak self] in
+            await previousSave?.value
             do {
-                try Self.saveToDisk(result, cacheURL: cacheURL)
+                try await Task.detached(priority: .utility) {
+                    try Self.saveToDisk(result, cacheURL: cacheURL)
+                }.value
             } catch {
                 logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
-                await MainActor.run { [weak self] in
-                    self?.lastError = .cacheSaveFailed(error.localizedDescription)
-                }
+                self?.lastError = .cacheSaveFailed(error.localizedDescription)
             }
         }
     }
@@ -459,6 +479,10 @@ final class DirectoryScanner: ObservableObject {
             return results
         }.value
 
+        // A cache save may still be reading the tree in the background:
+        // wait for it before removing nodes.
+        await saveTask?.value
+
         var successCount = 0
         var freedSize: Int64 = 0
         for outcome in outcomes {
@@ -474,7 +498,12 @@ final class DirectoryScanner: ObservableObject {
             }
         }
         if successCount > 0 {
-            objectWillChange.send()
+            treeRevision += 1
+            if let scanResult {
+                smartCategories = scanResult.root.extractSmartCategories()
+                scheduleCacheSave(scanResult)
+            }
+            loadDiskSpace(forceRefresh: true)
         }
 
         let result = DeletionResult(

@@ -159,7 +159,7 @@ struct DiskAnalyzerView: View {
             )
             .frame(minWidth: 400)
 
-            SunburstChartView(rootNode: node) { childNode in
+            SunburstChartView(rootNode: node, treeRevision: scanner.treeRevision) { childNode in
                 scanner.navigateTo(childNode)
             }
             .frame(minWidth: 250)

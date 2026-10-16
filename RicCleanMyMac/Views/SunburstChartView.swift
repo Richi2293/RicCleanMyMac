@@ -124,6 +124,9 @@ struct AnnularSector: Shape {
 
 struct SunburstChartView: View {
     let rootNode: FileNode
+    /// Changes when the tree is mutated in place, so segments are rebuilt
+    /// even though `rootNode` is still the same object.
+    let treeRevision: Int
     let onNavigate: (FileNode) -> Void
 
     @State private var hoveredSegment: UUID?
@@ -189,10 +192,13 @@ struct SunburstChartView: View {
         .onChange(of: rootNode) { newNode in
             segments = SunburstLayout.buildSegments(from: newNode)
         }
+        .onChange(of: treeRevision) { _ in
+            segments = SunburstLayout.buildSegments(from: rootNode)
+        }
     }
 
     private func tooltipText(for segment: SunburstSegment) -> String {
         let percentage = String(format: "%.1f%%", segment.node.relativeSize * 100)
-        return "\(segment.node.name) — \(segment.node.formattedSize) (\(percentage))"
+        return "\(segment.node.name): \(segment.node.formattedSize) (\(percentage))"
     }
 }
