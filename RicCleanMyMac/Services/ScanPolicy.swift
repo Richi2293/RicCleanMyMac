@@ -87,12 +87,12 @@ nonisolated enum ScanPolicy {
     /// - Parameters:
     ///   - url: The URL to classify. It is standardized internally.
     ///   - homeDirectory: The user's home directory. Must be supplied by
-    ///     the caller — resolving it via `FileManager` here would hide a
+    ///     the caller: resolving it via `FileManager` here would hide a
     ///     per-call filesystem hit in an otherwise-stateless classifier.
     ///   - bootVolumeName: The name of the boot volume under `/Volumes`
     ///     that should be allowed through `/Volumes`'s hard-skip.
     ///     Callers should resolve this once per scan and pass it here.
-    ///     Pass `nil` only when resolution is impossible — the classifier
+    ///     Pass `nil` only when resolution is impossible: the classifier
     ///     falls back to scanning `/Volumes/*` defensively in that case.
     /// - Returns: How the scanner should treat this path.
     static func classify(
@@ -141,7 +141,7 @@ nonisolated enum ScanPolicy {
             }
         }
 
-        // `~/Library` handling — whitelist first, then soft-skip fallback.
+        // `~/Library` handling: whitelist first, then soft-skip fallback.
         let homeLower = homeDirectory.standardizedFileURL.path.lowercased()
         let libraryRoot = homeLower + "/library"
         if path(lower, isUnderPrefix: libraryRoot) {

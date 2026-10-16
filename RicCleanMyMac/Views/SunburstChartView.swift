@@ -33,7 +33,7 @@ enum SunburstLayout {
             var currentAngle = startAngle
             var otherSize: Int64 = 0
 
-            // Children are already sorted by size descending — take only the top N
+            // Children are already sorted by size descending: take only the top N
             let topChildren = Array(children.prefix(maxChildrenPerNode))
             let remainingSize = children.dropFirst(maxChildrenPerNode).reduce(Int64(0)) { $0 + $1.size }
             otherSize = remainingSize

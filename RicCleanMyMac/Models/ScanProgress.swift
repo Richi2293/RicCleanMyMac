@@ -68,7 +68,7 @@ enum ScanError: Identifiable {
         case .cacheSaveFailed(let reason):
             return "The scan results could not be cached to disk, so re-opening the analyzer will trigger a full re-scan. \(reason)"
         case .deletionFailed(let failures):
-            let preview = failures.prefix(5).map { "• \($0.path) — \($0.reason)" }.joined(separator: "\n")
+            let preview = failures.prefix(5).map { "• \($0.path): \($0.reason)" }.joined(separator: "\n")
             let suffix = failures.count > 5 ? "\n…and \(failures.count - 5) more." : ""
             return preview + suffix
         }

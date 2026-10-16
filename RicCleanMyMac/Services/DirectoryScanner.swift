@@ -54,7 +54,7 @@ final class DirectoryScanner: ObservableObject {
     }
 
     /// 16-hex-char prefix of the SHA-256 of the input. Cryptographic strength
-    /// is not required — we just need a filename-safe, stable, collision-rare
+    /// is not required: we just need a filename-safe, stable, collision-rare
     /// fingerprint of the root path.
     private static func shortHash(of string: String) -> String {
         let data = Data(string.utf8)
@@ -70,7 +70,7 @@ final class DirectoryScanner: ObservableObject {
     /// Tear down any in-flight work and clear session-scoped state so a new
     /// scan or cache load can begin on `rootPath`. Shared between
     /// `scan(rootPath:)` and `loadCachedResult(forRootPath:)` to keep the
-    /// two entry points in lockstep — otherwise switching roots after a
+    /// two entry points in lockstep, otherwise switching roots after a
     /// successful scan (or during one) could leave stale state behind.
     private func prepareForNewRoot(_ rootPath: String) {
         scanTask?.cancel()
@@ -191,7 +191,7 @@ final class DirectoryScanner: ObservableObject {
                 self.currentNode = result.root
                 self.smartCategories = result.root.extractSmartCategories()
             case .notFound:
-                // No cache yet — UI handles this by offering a fresh scan.
+                // No cache yet: the UI handles this by offering a fresh scan.
                 break
             case .failed(let reason):
                 self.lastError = .cacheLoadFailed(reason)
@@ -277,7 +277,7 @@ final class DirectoryScanner: ObservableObject {
                         options: []
                     )
                 } catch {
-                    logger.debug("contentsOfDirectory failed at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    logger.debug("contentsOfDirectory failed at \(url.path): \(error.localizedDescription)")
                     return FileNode.inaccessibleDirectory(name: name)
                 }
 
@@ -292,7 +292,7 @@ final class DirectoryScanner: ObservableObject {
                     do {
                         values = try itemURL.resourceValues(forKeys: resourceKeySet)
                     } catch {
-                        logger.debug("resourceValues failed at \(itemURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        logger.debug("resourceValues failed at \(itemURL.path): \(error.localizedDescription)")
                         values = nil
                     }
                     let isDir = values?.isDirectory ?? false
@@ -459,34 +459,23 @@ final class DirectoryScanner: ObservableObject {
         var jobs: [DeletionJob] = []
         var failures: [DeletionFailure] = []
 
-        logger.info("deleteNodes called with \(nodes.count) node(s), deleteMode=\(String(describing: self.deleteMode), privacy: .public)")
         for (index, node) in nodes.enumerated() {
-            logger.info("  node[\(index)]: name=\(node.name, privacy: .public) path=\(node.path, privacy: .public) isDir=\(node.isDirectory) status=\(String(describing: node.status), privacy: .public)")
             if let reason = deletionBlocker(for: node) {
-                logger.warning("Skipped non-deletable path: \(node.path, privacy: .public) reason=\(reason, privacy: .public)")
+                // Paths use the default (private) log privacy: they are user data.
+                logger.warning("Skipped non-deletable path: \(node.path) reason=\(reason, privacy: .public)")
                 failures.append(DeletionFailure(path: node.path, reason: reason))
                 continue
             }
             jobs.append(DeletionJob(index: index, path: node.path, size: node.size))
         }
-        logger.info("Prepared \(jobs.count) deletion job(s), \(failures.count) pre-skipped")
 
         let deleteMode = self.deleteMode
         let outcomes: [Outcome] = await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
             var results: [Outcome] = []
             results.reserveCapacity(jobs.count)
-            let deleteLogger = Logger(
-                subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac",
-                category: "DirectoryScanner.delete"
-            )
             for job in jobs {
-                let exists = fm.fileExists(atPath: job.path)
-                let isReadable = fm.isReadableFile(atPath: job.path)
-                let isDeletable = fm.isDeletableFile(atPath: job.path)
-                deleteLogger.info("Job: path=\(job.path, privacy: .public) exists=\(exists) readable=\(isReadable) deletable=\(isDeletable) mode=\(String(describing: deleteMode), privacy: .public)")
-                guard exists else {
-                    deleteLogger.error("fileExists returned false for: \(job.path, privacy: .public)")
+                guard fm.fileExists(atPath: job.path) else {
                     results.append(.failure(DeletionFailure(
                         path: job.path,
                         reason: "Item no longer exists"
@@ -500,10 +489,8 @@ final class DirectoryScanner: ObservableObject {
                     case .permanent:
                         try fm.removeItem(atPath: job.path)
                     }
-                    deleteLogger.info("Successfully deleted: \(job.path, privacy: .public)")
                     results.append(.success(index: job.index, freed: job.size))
                 } catch {
-                    deleteLogger.error("Delete failed for \(job.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     results.append(.failure(DeletionFailure(
                         path: job.path,
                         reason: error.localizedDescription
@@ -527,7 +514,7 @@ final class DirectoryScanner: ObservableObject {
                 successCount += 1
                 freedSize += freed
             case .failure(let failure):
-                logger.error("Failed to delete \(failure.path, privacy: .public): \(failure.reason, privacy: .public)")
+                logger.error("Failed to delete \(failure.path): \(failure.reason)")
                 failures.append(failure)
             }
         }
@@ -587,8 +574,8 @@ final class DirectoryScanner: ObservableObject {
             let result = try ScanCacheSerializer.read(from: data)
             let t3 = CFAbsoluteTimeGetCurrent()
 
-            logger.info("""
-                Cache load timing — \
+            logger.debug("""
+                Cache load timing: \
                 read: \(String(format: "%.2f", t1 - t0))s, \
                 decompress: \(String(format: "%.2f", t2 - t1))s, \
                 decode: \(String(format: "%.2f", t3 - t2))s, \

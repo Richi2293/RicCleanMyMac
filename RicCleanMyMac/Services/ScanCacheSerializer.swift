@@ -9,6 +9,7 @@ nonisolated enum ScanCacheError: Error {
     case trailingData
     case valueTooLarge(String)
     case corruptedFlags(UInt8)
+    case tooDeep
 }
 
 /// Custom binary format for persisting directory scan results.
@@ -45,6 +46,11 @@ nonisolated enum ScanCacheSerializer {
     /// OOM on a corrupted `childCount` field. Ten million is well above any sane
     /// filesystem directory cardinality.
     private static let maxChildCount: UInt32 = 10_000_000
+
+    /// Maximum nesting depth accepted when reading. Real paths are limited to
+    /// `PATH_MAX` (1024 bytes), so no valid tree is deeper than this; a corrupt
+    /// file must not be able to exhaust the stack through recursion.
+    private static let maxDepth = 1024
 
     /// Rough per-node byte estimate used to pre-size the output buffer.
     /// Average: 2 (nameLen) + ~16 (name) + 8 (size) + 1 (flags) + 4 (childCount) + slack.
@@ -136,7 +142,7 @@ nonisolated enum ScanCacheSerializer {
         let scanDuration = try reader.readFloat64()
         let scanDate = Date(timeIntervalSinceReferenceDate: try reader.readFloat64())
 
-        let root = try readNode(from: &reader)
+        let root = try readNode(from: &reader, depth: 0)
 
         guard reader.offset == reader.byteCount else {
             throw ScanCacheError.trailingData
@@ -151,7 +157,8 @@ nonisolated enum ScanCacheSerializer {
         )
     }
 
-    private static func readNode(from reader: inout BinaryReader) throws -> FileNode {
+    private static func readNode(from reader: inout BinaryReader, depth: Int) throws -> FileNode {
+        guard depth <= maxDepth else { throw ScanCacheError.tooDeep }
         let nameLength = try reader.readUInt16()
         let nameBytes = try reader.readBytes(Int(nameLength))
         guard let name = String(bytes: nameBytes, encoding: .utf8) else {
@@ -199,7 +206,7 @@ nonisolated enum ScanCacheSerializer {
         if childCount > 0 {
             children.reserveCapacity(Int(childCount))
             for _ in 0..<childCount {
-                children.append(try readNode(from: &reader))
+                children.append(try readNode(from: &reader, depth: depth + 1))
             }
         }
         return FileNode.directory(
@@ -222,7 +229,7 @@ nonisolated private struct BinaryReader {
     init(data: Data) {
         // Force `startIndex == 0` so offset-based access is unambiguous. `Data`
         // slices inherit the parent's indices, and `loadUnaligned(fromByteOffset:)`
-        // is 0-based on the underlying buffer — mixing the two would read the
+        // is 0-based on the underlying buffer, and mixing the two would read the
         // wrong bytes on a sliced input.
         self.data = data.startIndex == 0 ? data : Data(data)
     }
@@ -248,7 +255,7 @@ nonisolated private struct BinaryReader {
     }
 
     // Note: `loadUnaligned` is required because `Data.withUnsafeBytes` does not
-    // guarantee natural alignment of the underlying storage — using `load` here
+    // guarantee natural alignment of the underlying storage: using `load` here
     // crashes on arm64 when the offset is not a multiple of the type's stride.
     // See commit 925e7d2. Do not "simplify" these to `load`.
     mutating func readUInt16() throws -> UInt16 {

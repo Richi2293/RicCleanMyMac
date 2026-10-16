@@ -28,7 +28,7 @@ struct DiskDashboardHeader: View {
                 Circle()
                     .fill(gaugeColor(for: ds.usedPercentage))
                     .frame(width: 8, height: 8)
-                Text("\(Int(ds.usedPercentage * 100))% — \(ds.formattedAvailable) available")
+                Text("\(Int(ds.usedPercentage * 100))%, \(ds.formattedAvailable) available")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
