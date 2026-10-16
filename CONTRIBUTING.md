@@ -28,7 +28,7 @@ Thank you for your interest in contributing to RicCleanMyMac! This document prov
    git checkout -b feature/your-feature-name
    ```
 3. Make your changes
-4. Test your changes thoroughly
+4. Run the unit tests (⌘U, see [Testing and Deployment](docs/TESTING_AND_DEPLOYMENT.md#2-unit-testing)) and test your changes in the app
 5. Commit with clear, descriptive messages in English
 6. Push to your fork and open a Pull Request against the `dev` branch
 
