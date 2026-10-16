@@ -239,6 +239,32 @@ final class DirectoryScanner: ObservableObject {
                 .volumeName
             let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
 
+            // Allocated size is what a file really takes on disk: it is ~0 for
+            // iCloud files that are not downloaded and smaller for sparse files.
+            // APFS clones still count in full, macOS does not expose shared blocks.
+            let resourceKeys: [URLResourceKey] = [
+                .isDirectoryKey,
+                .totalFileAllocatedSizeKey,
+                .fileAllocatedSizeKey,
+                .fileSizeKey,
+                .linkCountKey
+            ]
+            let resourceKeySet = Set(resourceKeys)
+
+            // Files with several hard links are counted once, at the first path met.
+            var seenHardLinks = Set<NSObject>()
+
+            func diskSize(of values: URLResourceValues?, at url: URL) -> Int64 {
+                guard let values else { return 0 }
+                if let linkCount = values.linkCount, linkCount > 1,
+                   let identifier = try? url.resourceValues(forKeys: [.fileResourceIdentifierKey])
+                       .fileResourceIdentifier as? NSObject {
+                    if !seenHardLinks.insert(identifier).inserted { return 0 }
+                }
+                let size = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0
+                return Int64(size)
+            }
+
             func buildTree(at url: URL, nameOverride: String? = nil, status: NodeStatus = .normal) -> FileNode {
                 directoriesCount += 1
                 let name = nameOverride ?? url.lastPathComponent
@@ -247,7 +273,7 @@ final class DirectoryScanner: ObservableObject {
                 do {
                     contents = try fileManager.contentsOfDirectory(
                         at: url,
-                        includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+                        includingPropertiesForKeys: resourceKeys,
                         options: []
                     )
                 } catch {
@@ -264,7 +290,7 @@ final class DirectoryScanner: ObservableObject {
 
                     let values: URLResourceValues?
                     do {
-                        values = try itemURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                        values = try itemURL.resourceValues(forKeys: resourceKeySet)
                     } catch {
                         logger.debug("resourceValues failed at \(itemURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                         values = nil
@@ -300,7 +326,7 @@ final class DirectoryScanner: ObservableObject {
                         totalSize += childNode.size
                         children.append(childNode)
                     } else {
-                        let fileSize = Int64(values?.fileSize ?? 0)
+                        let fileSize = diskSize(of: values, at: itemURL)
                         children.append(FileNode.file(name: itemURL.lastPathComponent, size: fileSize))
                         totalSize += fileSize
                         filesCount += 1
