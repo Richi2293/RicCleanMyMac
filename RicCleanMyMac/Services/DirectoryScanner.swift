@@ -392,6 +392,12 @@ final class DirectoryScanner: ObservableObject {
         if Self.isHomeOrAncestorOfHome(node.path) {
             return "Path is your home folder or contains it"
         }
+        if ScanPolicy.isKeptFolder(
+            URL(fileURLWithPath: node.path),
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        ) {
+            return "This folder must stay in place. Delete its contents instead."
+        }
         if node.containsProtectedItems {
             return "Folder contains protected items"
         }

@@ -62,12 +62,23 @@ nonisolated enum ScanPolicy {
     private static let softSkipPrefixes: [String] = [
         "/library",
         "/applications",
-        "/opt"
+        "/opt",
+        // System configuration and data (`/private/etc`, `/private/var`).
+        // `/private/var/db` and `/private/var/folders` are skipped above.
+        "/private",
+        // Files shared by every user of the Mac.
+        "/users/shared"
+    ]
+
+    /// Exceptions to `softSkipPrefixes`: scanned and deletable as usual.
+    private static let softSkipExceptions: [String] = [
+        "/private/tmp"
     ]
 
     /// Sub-paths of `~/Library` that should remain `.scanned` (deletable) even
     /// though `~/Library` itself is otherwise soft-skipped. These are the
-    /// classic "safe to delete to free space" targets.
+    /// classic "safe to delete to free space" targets. The folders themselves
+    /// are kept (see `isKeptFolder`): only their contents can be deleted.
     ///
     /// Stored without the `~/Library/` prefix; the classifier prepends the
     /// actual home directory at match time.
@@ -156,8 +167,15 @@ nonisolated enum ScanPolicy {
             }
         }
 
-        // `~/Library` handling: whitelist first, then soft-skip fallback.
         let homeLower = homeDirectory.standardizedFileURL.path.lowercased()
+
+        // Other users' home folders: not ours to measure or clean.
+        if path(lower, isUnderPrefix: "/users"), lower != "/users",
+           !path(lower, isUnderPrefix: homeLower), !path(lower, isUnderPrefix: "/users/shared") {
+            return .skipped(reason: "Other user")
+        }
+
+        // `~/Library` handling: whitelist first, then soft-skip fallback.
         let libraryRoot = homeLower + "/library"
         if path(lower, isUnderPrefix: libraryRoot) {
             let relative = String(lower.dropFirst(libraryRoot.count))
@@ -170,6 +188,9 @@ nonisolated enum ScanPolicy {
             return .readOnly
         }
 
+        for exception in softSkipExceptions where path(lower, isUnderPrefix: exception) {
+            return .scanned
+        }
         for prefix in softSkipPrefixes {
             if path(lower, isUnderPrefix: prefix) {
                 return .readOnly
@@ -177,6 +198,18 @@ nonisolated enum ScanPolicy {
         }
 
         return .scanned
+    }
+
+    /// `true` for the `~/Library` folders whose contents can be deleted but
+    /// which must stay in place themselves, such as `~/Library/Caches`: apps
+    /// expect them to exist.
+    static func isKeptFolder(_ url: URL, homeDirectory: URL) -> Bool {
+        let lower = normalizedLowercasePath(of: url)
+        let libraryRoot = homeDirectory.standardizedFileURL.path.lowercased() + "/library"
+        guard path(lower, isUnderPrefix: libraryRoot) else { return false }
+        let relative = String(lower.dropFirst(libraryRoot.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return libraryWhitelist.contains(relative)
     }
 
     /// Standardized, lowercased absolute path without a trailing slash, with

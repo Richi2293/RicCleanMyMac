@@ -153,12 +153,13 @@ struct FileListRow: View {
                     .frame(width: 16)
                     .help("Could not be read")
             case .normal:
-                // A `.normal` node that is not deletable is a folder holding
-                // protected content (or the home folder itself).
+                // A `.normal` node that is not deletable: a folder holding
+                // protected content, the home folder, or a folder such as
+                // `~/Library/Caches` that must stay while its contents go.
                 Image(systemName: "lock")
                     .foregroundColor(.secondary.opacity(0.6))
                     .frame(width: 16)
-                    .help("Protected: this folder contains read-only or system items")
+                    .help("Protected: this folder cannot be deleted")
             }
         }
     }

@@ -1,14 +1,14 @@
-# Disk Analyzer — Scan Policy (selective traversal + read-only zones)
+# Disk Analyzer: Scan Policy (selective traversal + read-only zones)
 
 ## Context
 
 Today `DirectoryScanner` starts every scan from `/` (hardcoded in three call sites of
 `DiskAnalyzerView.swift`) and walks the entire volume. The only protection mechanism is
 `protectedPrefixes` in `DirectoryScanner.swift:33`, which prevents deletion of a fixed list
-of system roots — but it does **not** prevent the scanner from traversing them. As a result:
+of system roots, but it does **not** prevent the scanner from traversing them. As a result:
 
 1. Every scan spends time reading `/System`, `/Library`, `/usr`, `/private/var/folders`, etc.
-   — content the user can never act on anyway.
+   This is content the user can never act on anyway.
 2. External volumes under `/Volumes` are traversed too, which can block the scan on slow or
    network-mounted drives.
 3. There is no way for the user to scope the scan to their home or to an arbitrary folder.
@@ -43,7 +43,7 @@ explicit "entire disk" mode for power users.
 
 ## Design
 
-### 1. `ScanPolicy` — single source of truth
+### 1. `ScanPolicy`: single source of truth
 
 A new file `RicCleanMyMac/Services/ScanPolicy.swift` owns all knowledge about how a given path
 should be treated.
@@ -68,7 +68,7 @@ Rules, applied in order:
 
 1. **Normalize** the input via `url.standardized.path`. Comparison is case-insensitive
    (macOS APFS/HFS+ is case-insensitive by default).
-2. **Hard-skip list** — return `.skipped(reason:)` if the normalized path equals or is a
+2. **Hard-skip list**: return `.skipped(reason:)` if the normalized path equals or is a
    child of any of:
    ```
    /System
@@ -85,9 +85,16 @@ Rules, applied in order:
    /.DocumentRevisions-V100
    /.TemporaryItems
    /.Trashes             (root-level only, NOT ~/.Trash)
-   /Volumes              (exception: the boot volume's own firmlink → .scanned)
+   /Volumes              (exception: the boot volume's own firmlink → .scanned;
+                          also scanned when the scan root is on that volume)
+   /Network, /net, /home (automounted network locations)
    ```
-3. **`~/Library` whitelist** — if the path is inside `~/Library` and inside one of these
+   Paths are compared in their `/private/...` form: `/var`, `/tmp` and `/etc` are rewritten
+   first, and scan roots are resolved with `realpath(3)`, which keeps `/private`.
+
+   **Other users' home folders** (`/Users/<name>` other than the current user's home and
+   `/Users/Shared`) also return `.skipped(reason: "Other user")`.
+3. **`~/Library` whitelist**: if the path is inside `~/Library` and inside one of these
    subtrees, return `.scanned`:
    ```
    ~/Library/Caches
@@ -100,20 +107,27 @@ Rules, applied in order:
    ~/Library/Developer/Xcode/tvOS DeviceSupport
    ~/Library/Developer/CoreSimulator/Caches
    ```
-4. **`~/Library` soft skip** — any other path under `~/Library` returns `.readOnly`.
-5. **Other soft-skip list** — return `.readOnly` if the normalized path equals or is a
+   These folders are **kept**: their contents are deletable, the folders themselves are not
+   (`ScanPolicy.isKeptFolder`), because apps expect them to exist.
+4. **`~/Library` soft skip**: any other path under `~/Library` returns `.readOnly`.
+5. **Other soft-skip list**: return `.readOnly` if the normalized path equals or is a
    child of any of:
    ```
    /Library
    /Applications
    /opt
+   /private              (exception: /private/tmp and its subtree → .scanned)
+   /Users/Shared
    ```
 6. Otherwise return `.scanned`.
 
 The chosen root URL itself is **never** skipped: if the user explicitly picks a path that would
-normally be classified as `.skipped` or `.readOnly`, the root node is forced to `.scanned` so
-the scan can actually run. This is a small override on the root node only, applied in
-`DirectoryScanner`, not in `ScanPolicy` itself.
+normally be classified as `.skipped` or `.readOnly`, the scan still runs, but the root node is
+`.readOnly`, so its files inherit `.readOnly` and nothing protected becomes deletable. This is
+applied in `TreeBuilder`, not in `ScanPolicy` itself.
+
+Decisions of 16 October 2026: `/private` read-only except `/private/tmp`, `/Users/Shared`
+read-only, other users' homes skipped, `~/Library` whitelist folders kept in place.
 
 ### 2. `NodeStatus` replaces `accessDenied`
 
@@ -141,10 +155,10 @@ the same commit. No shim property is kept.
   so tests can inject a fake.
 - `buildTree(at:)` calls `ScanPolicy.classify(url)` on every directory entry it encounters
   and acts on the result:
-  - `.scanned` — current behavior: recurse if directory, read size if file.
-  - `.readOnly` — still recurse and measure children (the UI needs the size), but mark the
+  - `.scanned`: current behavior: recurse if directory, read size if file.
+  - `.readOnly`: still recurse and measure children (the UI needs the size), but mark the
     resulting node with `status = .readOnly`.
-  - `.skipped(reason)` — do NOT recurse; emit a leaf-like placeholder directory node with
+  - `.skipped(reason)`: do NOT recurse; emit a leaf-like placeholder directory node with
     `size = 0` and `status = .skipped(reason)`.
 
   `ScanPolicy` is stateless: each entry is classified independently, so a `.readOnly`
@@ -166,9 +180,9 @@ the same commit. No shim property is kept.
 `DiskAnalyzerView` gets a small control in its header (picker or segmented control) with three
 options:
 
-- **Home** (`~`) — new default
-- **Entire disk** (`/`) — equivalent to current behavior
-- **Choose folder…** — opens `NSOpenPanel` with `canChooseDirectories = true`
+- **Home** (`~`): new default
+- **Entire disk** (`/`): equivalent to current behavior
+- **Choose folder…**: opens `NSOpenPanel` with `canChooseDirectories = true`
 
 The three hardcoded `scanner.scan(rootPath: "/")` call sites in `DiskAnalyzerView.swift`
 (lines 43, 73, 193) all route through a single helper that reads the current root from the
@@ -211,7 +225,7 @@ to a fresh scan.
 |---|---|---|---|
 | `.normal` | As today | yes | yes |
 | `.readOnly` | Lock icon + "read-only" badge, size shown normally | yes | no |
-| `.skipped(reason)` | Grey name, size shown as "—", "Skipped: \(reason)" badge | no | no |
+| `.skipped(reason)` | Grey name, size shown as "-", "Skipped: \(reason)" badge | no | no |
 | `.inaccessible` | As today | no | no |
 
 On the sunburst/treemap: `.readOnly` segments are drawn with a desaturated fill (concrete
@@ -224,7 +238,7 @@ The deletion error message in `DirectoryScanner.deleteNodes` changes from
 
 ## Testing
 
-### Unit — `ScanPolicyTests` (pure, no filesystem)
+### Unit: `ScanPolicyTests` (pure, no filesystem)
 
 Drives `ScanPolicy.classify(_:)` with synthesized `URL` values. Injects a fake home directory
 and boot volume name so tests are fully hermetic.
@@ -242,7 +256,7 @@ and boot volume name so tests are fully hermetic.
 - Whitelist boundary: `~/Library/Developer/Xcode/Archives` → `.readOnly` (NOT whitelisted)
 - Normal paths: `~/Documents/foo.txt`, `~/Downloads`, `~/Projects` → `.scanned`
 
-### Unit — `ScanPolicyEdgeTests`
+### Unit: `ScanPolicyEdgeTests`
 
 - Trailing slash: `/System/` → `.skipped`
 - Dot-segments: `/Users/x/./Library/./Caches` → `.scanned`
@@ -250,7 +264,7 @@ and boot volume name so tests are fully hermetic.
 - Empty path and `/` → `.scanned` (the root itself is never skipped)
 - Symlink resolution: a URL whose `.standardized` resolves to `/System/...` → `.skipped`
 
-### Integration — `DirectoryScannerTests`
+### Integration: `DirectoryScannerTests`
 
 A new test creates a sandbox directory `sandbox/{visible/fileA.txt, fake_system/large.bin}`
 and injects a fake `ScanPolicy` that classifies `fake_system` as `.skipped`. Assertions:
@@ -261,7 +275,7 @@ and injects a fake `ScanPolicy` that classifies `fake_system` as `.skipped`. Ass
 
 Requires adding a `scanPolicy` parameter to `performScan` (default = production).
 
-### Integration — `ScanCacheSerializerTests`
+### Integration: `ScanCacheSerializerTests`
 
 - **Round trip with all statuses**: encode and decode a tree containing each of the 4
   `NodeStatus` values and verify statuses survive the round trip.
@@ -274,17 +288,17 @@ Requires adding a `scanPolicy` parameter to `performScan` (default = production)
 - `RicCleanMyMacTests/ScanPolicyEdgeTests.swift`
 
 **Modified:**
-- `RicCleanMyMac/Models/FileNode.swift` — introduce `NodeStatus`, replace `accessDenied`
-- `RicCleanMyMac/Services/DirectoryScanner.swift` — delete `protectedPrefixes` /
+- `RicCleanMyMac/Models/FileNode.swift`: introduce `NodeStatus`, replace `accessDenied`
+- `RicCleanMyMac/Services/DirectoryScanner.swift`: delete `protectedPrefixes` /
   `isPathProtected`, wire `ScanPolicy` into `buildTree`, per-root `cacheURL`, updated
   `isNodeDeletable` and delete-failure messages
-- `RicCleanMyMac/Services/ScanCacheSerializer.swift` — bump to v2, encode/decode `NodeStatus`,
+- `RicCleanMyMac/Services/ScanCacheSerializer.swift`: bump to v2, encode/decode `NodeStatus`,
   reject v1 cleanly
-- `RicCleanMyMac/Views/DiskAnalyzerView.swift` — root picker, route all scan calls through a
+- `RicCleanMyMac/Views/DiskAnalyzerView.swift`: root picker, route all scan calls through a
   helper, persist choice in `UserDefaults`, read-only/skipped row rendering
-- Any other view that renders `FileNode` rows (file list / treemap) — adapt to `NodeStatus`
-- `RicCleanMyMacTests/DirectoryScannerTests.swift` — new test case for skipped traversal
-- `RicCleanMyMacTests/ScanCacheSerializerTests.swift` — v2 round trip + v1 rejection
+- Any other view that renders `FileNode` rows (file list / treemap): adapt to `NodeStatus`
+- `RicCleanMyMacTests/DirectoryScannerTests.swift`: new test case for skipped traversal
+- `RicCleanMyMacTests/ScanCacheSerializerTests.swift`: v2 round trip + v1 rejection
 
 ## Risks
 
