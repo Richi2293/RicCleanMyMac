@@ -74,10 +74,9 @@ struct DiskAnalyzerView: View {
             Text(error.message)
         }
         .sheet(isPresented: $showLargeFiles) {
-            if let category = largeFileCategory,
-               let root = scanner.scanResult?.root {
+            if let category = largeFileCategory {
                 LargeFilesSheet(
-                    nodes: root.findNodes(withIDs: Set(category.nodeIDs)),
+                    nodes: category.nodes,
                     onNavigate: { node in
                         showLargeFiles = false
                         if let parent = node.parent {
@@ -273,9 +272,9 @@ struct DiskAnalyzerView: View {
         if category.id == "largeFiles" {
             largeFileCategory = category
             showLargeFiles = true
-        } else if let firstID = category.nodeIDs.first,
-                  let node = scanner.scanResult?.root.findNodes(withIDs: Set([firstID])).first {
-            scanner.navigateTo(node)
+        } else if let largest = category.nodes.first {
+            // `.log` files are leaves: open the folder that holds them.
+            scanner.navigateTo(largest.isDirectory ? largest : largest.parent ?? largest)
         }
     }
 
@@ -426,7 +425,7 @@ private struct LargeFilesSheet: View {
 
             Divider()
 
-            List(sortedNodes, id: \.id) { node in
+            List(nodes, id: \.id) { node in
                 Button {
                     onNavigate(node)
                 } label: {
@@ -448,9 +447,5 @@ private struct LargeFilesSheet: View {
             }
         }
         .frame(width: 500, height: 400)
-    }
-
-    private var sortedNodes: [FileNode] {
-        nodes.sorted { $0.size > $1.size }
     }
 }

@@ -155,71 +155,62 @@ nonisolated final class FileNode: Identifiable, @unchecked Sendable {
         parent?.recalculateSizeToRoot()
     }
 
-    func findNodes(withIDs ids: Set<ObjectIdentifier>) -> [FileNode] {
-        var result: [FileNode] = []
-        if ids.contains(id) { result.append(self) }
-        if let children {
-            for child in children {
-                result.append(contentsOf: child.findNodes(withIDs: ids))
-            }
-        }
-        return result
+    /// `true` when the scan policy allows deleting this node: it is `.normal`
+    /// and holds no protected content. `DirectoryScanner` adds its own
+    /// checks (scan root, home folder) on top.
+    var isDeletableByPolicy: Bool {
+        status == .normal && !containsProtectedItems
     }
 
     // MARK: - Smart categories
 
-    func extractSmartCategories() -> [SmartCategory] {
-        var cacheSize: Int64 = 0
-        var cacheIDs: [ObjectIdentifier] = []
-        var logSize: Int64 = 0
-        var logIDs: [ObjectIdentifier] = []
-        var tempSize: Int64 = 0
-        var tempIDs: [ObjectIdentifier] = []
-        var downloadsSize: Int64 = 0
-        var downloadsIDs: [ObjectIdentifier] = []
-        var largeFileSize: Int64 = 0
-        var largeFileIDs: [ObjectIdentifier] = []
+    /// Groups well-known expendable folders and large files found under this
+    /// node. Only nodes the policy lets the user delete are counted, so the
+    /// totals show space that can really be freed.
+    func extractSmartCategories(
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> [SmartCategory] {
+        var cacheNodes: [FileNode] = []
+        var logNodes: [FileNode] = []
+        var tempNodes: [FileNode] = []
+        var downloadsNodes: [FileNode] = []
+        var largeFileNodes: [FileNode] = []
 
         let largeFileThreshold: Int64 = 1_073_741_824 // 1 GB
+        let downloadsPath = URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent("Downloads").standardizedFileURL.path.lowercased()
 
         func walk(_ node: FileNode) {
             if node.isDirectory {
-                let lower = node.name.lowercased()
-
-                if lower == "caches" || lower == ".cache" {
-                    cacheSize += node.size
-                    cacheIDs.append(node.id)
-                    return // don't recurse — whole subtree counted
+                if node.isDeletableByPolicy {
+                    let lower = node.name.lowercased()
+                    // A matching folder counts as a whole: its subtree is not visited.
+                    if lower == "caches" || lower == ".cache" {
+                        cacheNodes.append(node)
+                        return
+                    }
+                    if lower == "logs" {
+                        logNodes.append(node)
+                        return
+                    }
+                    if lower == "tmp" || lower == "temporary items" {
+                        tempNodes.append(node)
+                        return
+                    }
+                    if lower == "downloads", node.path.lowercased() == downloadsPath {
+                        downloadsNodes.append(node)
+                        return
+                    }
                 }
-                if lower == "logs" {
-                    logSize += node.size
-                    logIDs.append(node.id)
-                    return
-                }
-                if lower == "tmp" || lower == "temporary items" {
-                    tempSize += node.size
-                    tempIDs.append(node.id)
-                    return
-                }
-                if lower == "downloads" && node.parent?.name.lowercased() != "downloads" {
-                    downloadsSize += node.size
-                    downloadsIDs.append(node.id)
-                    return
-                }
-
                 for child in node.children ?? [] {
                     walk(child)
                 }
-            } else {
-                // Leaf file: check for .log extension
-                let ext = (node.name as NSString).pathExtension.lowercased()
-                if ext == "log" {
-                    logSize += node.size
-                    logIDs.append(node.id)
+            } else if node.isDeletableByPolicy {
+                if (node.name as NSString).pathExtension.lowercased() == "log" {
+                    logNodes.append(node)
                 }
                 if node.size >= largeFileThreshold {
-                    largeFileSize += node.size
-                    largeFileIDs.append(node.id)
+                    largeFileNodes.append(node)
                 }
             }
         }
@@ -228,40 +219,16 @@ nonisolated final class FileNode: Identifiable, @unchecked Sendable {
             walk(child)
         }
 
-        var categories: [SmartCategory] = []
-
-        if cacheSize > 0 {
-            categories.append(SmartCategory(
-                id: "cache", name: "Cache", icon: "archivebox",
-                totalSize: cacheSize, nodeIDs: cacheIDs
-            ))
-        }
-        if logSize > 0 {
-            categories.append(SmartCategory(
-                id: "log", name: "Log", icon: "doc.text",
-                totalSize: logSize, nodeIDs: logIDs
-            ))
-        }
-        if tempSize > 0 {
-            categories.append(SmartCategory(
-                id: "temp", name: "Temp", icon: "clock.arrow.circlepath",
-                totalSize: tempSize, nodeIDs: tempIDs
-            ))
-        }
-        if downloadsSize > 0 {
-            categories.append(SmartCategory(
-                id: "downloads", name: "Downloads", icon: "arrow.down.circle",
-                totalSize: downloadsSize, nodeIDs: downloadsIDs
-            ))
-        }
-        if largeFileSize > 0 {
-            categories.append(SmartCategory(
-                id: "largeFiles", name: "Large files", icon: "doc.badge.ellipsis",
-                totalSize: largeFileSize, nodeIDs: largeFileIDs
-            ))
-        }
-
-        return categories.sorted { $0.totalSize > $1.totalSize }
+        let candidates = [
+            SmartCategory(id: "cache", name: "Cache", icon: "archivebox", nodes: cacheNodes),
+            SmartCategory(id: "log", name: "Log", icon: "doc.text", nodes: logNodes),
+            SmartCategory(id: "temp", name: "Temp", icon: "clock.arrow.circlepath", nodes: tempNodes),
+            SmartCategory(id: "downloads", name: "Downloads", icon: "arrow.down.circle", nodes: downloadsNodes),
+            SmartCategory(id: "largeFiles", name: "Large files", icon: "doc.badge.ellipsis", nodes: largeFileNodes)
+        ]
+        return candidates
+            .filter { $0.totalSize > 0 }
+            .sorted { $0.totalSize > $1.totalSize }
     }
 
     private func fileIcon(for name: String) -> String {
