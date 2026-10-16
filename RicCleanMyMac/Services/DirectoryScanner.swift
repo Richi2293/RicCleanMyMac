@@ -46,8 +46,7 @@ final class DirectoryScanner: ObservableObject {
     /// Returns the cache URL for a given scan root. The filename embeds a
     /// short hash of the root so different roots never collide.
     private func cacheURL(forRootPath rootPath: String) -> URL? {
-        let normalized = URL(fileURLWithPath: rootPath).standardizedFileURL.path
-        let digest = Self.shortHash(of: normalized)
+        let digest = Self.shortHash(of: Self.resolvedPath(rootPath))
         return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("RicCleanMyMac")
             .appendingPathComponent("scan-cache-\(digest).bin.lzfse")
@@ -100,7 +99,15 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
-    func scan(rootPath: String) {
+    /// The real path of `path`, with symlinks resolved. Scan roots are
+    /// resolved before use so node paths match what `ScanPolicy` and the
+    /// home-folder check expect: `/Volumes/Macintosh HD` is a symlink to `/`.
+    nonisolated private static func resolvedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    func scan(rootPath requestedPath: String) {
+        let rootPath = Self.resolvedPath(requestedPath)
         prepareForNewRoot(rootPath)
         isScanning = true
 
@@ -169,7 +176,8 @@ final class DirectoryScanner: ObservableObject {
 
     /// Load the cached scan result for the given root path asynchronously
     /// (off the main thread).
-    func loadCachedResult(forRootPath rootPath: String) {
+    func loadCachedResult(forRootPath requestedPath: String) {
+        let rootPath = Self.resolvedPath(requestedPath)
         prepareForNewRoot(rootPath)
         isLoadingCache = true
 
@@ -424,8 +432,13 @@ final class DirectoryScanner: ObservableObject {
         return nil
     }
 
+    private static let resolvedHomePath = resolvedPath(
+        FileManager.default.homeDirectoryForCurrentUser.path
+    ).lowercased()
+
+    /// `path` comes from the tree, whose root path is already resolved.
     private static func isHomeOrAncestorOfHome(_ path: String) -> Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path.lowercased()
+        let home = resolvedHomePath
         let candidate = URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
         if candidate == home || candidate == "/" { return true }
         return home.hasPrefix(candidate + "/")
