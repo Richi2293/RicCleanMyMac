@@ -38,6 +38,11 @@ final class DirectoryScanner: ObservableObject {
     private(set) var currentRootPath: String?
 
     private let fileManager = FileManager.default
+
+    /// Where scan caches are saved. `nil` when Application Support cannot be
+    /// resolved: scans then work without a cache.
+    private let cacheDirectory: URL?
+
     private var scanTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var diskSpaceTask: Task<Void, Never>?
@@ -62,13 +67,22 @@ final class DirectoryScanner: ObservableObject {
     /// (after the save) instead of starting a full scan.
     private var pendingCacheSaves: [URL: Int] = [:]
 
+    /// - Parameter cacheDirectory: Where to save scan caches. Defaults to the
+    ///   app's folder in Application Support; tests pass a temporary folder.
+    init(cacheDirectory: URL? = DirectoryScanner.defaultCacheDirectory) {
+        self.cacheDirectory = cacheDirectory
+    }
+
+    nonisolated static var defaultCacheDirectory: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("RicCleanMyMac")
+    }
+
     /// Returns the cache URL for a given scan root. The filename embeds a
     /// short hash of the root so different roots never collide.
     private func cacheURL(forRootPath rootPath: String) -> URL? {
         let digest = Self.shortHash(of: Self.resolvedPath(rootPath))
-        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("RicCleanMyMac")
-            .appendingPathComponent("scan-cache-\(digest).bin.lzfse")
+        return cacheDirectory?.appendingPathComponent("scan-cache-\(digest).bin.lzfse")
     }
 
     /// 16-hex-char prefix of the SHA-256 of the input. Cryptographic strength
@@ -224,7 +238,7 @@ final class DirectoryScanner: ObservableObject {
 
     /// Waits until no background work reads a tree, including work that was
     /// scheduled while waiting.
-    private func waitForBackgroundWork() async {
+    func waitForBackgroundWork() async {
         while let task = backgroundTask {
             await task.value
             if backgroundTask == task { return }
