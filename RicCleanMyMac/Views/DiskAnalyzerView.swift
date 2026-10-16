@@ -73,19 +73,18 @@ struct DiskAnalyzerView: View {
         }
         .sheet(isPresented: $showLargeFiles) {
             // Read from the scanner, not a copy taken on tap: categories are
-            // recomputed after every deletion.
-            if let category = scanner.smartCategories.first(where: { $0.id == "largeFiles" }) {
-                LargeFilesSheet(
-                    nodes: category.nodes,
-                    onNavigate: { node in
-                        showLargeFiles = false
-                        if let parent = node.parent {
-                            scanner.navigateTo(parent)
-                        }
-                    },
-                    onDismiss: { showLargeFiles = false }
-                )
-            }
+            // recomputed after every deletion. The sheet always renders, even
+            // when the category is gone, so it can still be closed.
+            LargeFilesSheet(
+                nodes: scanner.smartCategories.first(where: { $0.id == "largeFiles" })?.nodes ?? [],
+                onNavigate: { node in
+                    showLargeFiles = false
+                    if let parent = node.parent {
+                        scanner.navigateTo(parent)
+                    }
+                },
+                onDismiss: { showLargeFiles = false }
+            )
         }
     }
 
@@ -422,27 +421,37 @@ private struct LargeFilesSheet: View {
 
             Divider()
 
-            List(nodes, id: \.id) { node in
-                Button {
-                    onNavigate(node)
-                } label: {
-                    HStack {
-                        Image(systemName: node.icon)
-                            .foregroundColor(.secondary)
-                        Text(node.name)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Text(node.formattedSize)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.accentColor)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            if nodes.isEmpty {
+                Text("No files over 1 GB")
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                list
             }
         }
         .frame(width: 500, height: 400)
+    }
+
+    private var list: some View {
+        List(nodes, id: \.id) { node in
+            Button {
+                onNavigate(node)
+            } label: {
+                HStack {
+                    Image(systemName: node.icon)
+                        .foregroundColor(.secondary)
+                    Text(node.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Text(node.formattedSize)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.accentColor)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 }

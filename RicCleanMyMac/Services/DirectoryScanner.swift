@@ -57,6 +57,11 @@ final class DirectoryScanner: ObservableObject {
     /// previous one.
     private var backgroundTask: Task<Void, Never>?
 
+    /// Cache files a queued background task will write. A root counts as
+    /// cached as soon as its save is queued, so reopening it loads the cache
+    /// (after the save) instead of starting a full scan.
+    private var pendingCacheSaves: [URL: Int] = [:]
+
     /// Returns the cache URL for a given scan root. The filename embeds a
     /// short hash of the root so different roots never collide.
     private func cacheURL(forRootPath rootPath: String) -> URL? {
@@ -187,6 +192,7 @@ final class DirectoryScanner: ObservableObject {
     /// sooner. Categories are applied only if `result` is still on screen.
     private func scheduleBackgroundWork(on result: DirectoryScanResult, savingTo cacheURL: URL?) {
         let previous = backgroundTask
+        if let cacheURL { pendingCacheSaves[cacheURL, default: 0] += 1 }
         backgroundTask = Task { [weak self] in
             await previous?.value
             let outcome = await Task.detached(priority: .utility) { () -> BackgroundWorkOutcome in
@@ -203,6 +209,10 @@ final class DirectoryScanner: ObservableObject {
                 return BackgroundWorkOutcome(categories: categories, saveError: saveError)
             }.value
             guard let self else { return }
+            if let cacheURL {
+                self.pendingCacheSaves[cacheURL, default: 1] -= 1
+                if self.pendingCacheSaves[cacheURL] == 0 { self.pendingCacheSaves[cacheURL] = nil }
+            }
             if self.scanResult?.root === result.root {
                 self.smartCategories = outcome.categories
             }
@@ -224,7 +234,7 @@ final class DirectoryScanner: ObservableObject {
     /// Whether a cached scan exists on disk for the given root path.
     func hasCachedResult(forRootPath rootPath: String) -> Bool {
         guard let cacheURL = cacheURL(forRootPath: rootPath) else { return false }
-        return fileManager.fileExists(atPath: cacheURL.path)
+        return pendingCacheSaves[cacheURL] != nil || fileManager.fileExists(atPath: cacheURL.path)
     }
 
     /// Load the cached scan result for the given root path asynchronously
@@ -236,6 +246,10 @@ final class DirectoryScanner: ObservableObject {
 
         let cacheURL = self.cacheURL(forRootPath: rootPath)
         loadTask = Task { [weak self] in
+            // A save of this root may still be queued (for example right after
+            // a deletion): read the file only once it is written.
+            await self?.waitForBackgroundWork()
+            guard !Task.isCancelled else { return }
             let outcome: CacheLoadOutcome = await Task.detached(priority: .userInitiated) {
                 guard let cacheURL else { return .notFound }
                 return Self.loadFromDisk(cacheURL: cacheURL)
@@ -561,8 +575,16 @@ final class DirectoryScanner: ObservableObject {
             }
             currentSize = fresh.size
         } else {
-            let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey])
-            currentSize = Int64(values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? values?.fileSize ?? 0)
+            let values = try? url.resourceValues(
+                forKeys: [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey, .linkCountKey]
+            )
+            if let linkCount = values?.linkCount, linkCount > 1 {
+                // The scan counts a hard-linked file at one path only, so the
+                // size shown may be 0: like folders, ignore it when measuring.
+                currentSize = 0
+            } else {
+                currentSize = Int64(values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? values?.fileSize ?? 0)
+            }
         }
         if currentSize > job.size + allowedGrowth(over: job.size) {
             return .failed(failure("Item grew since the scan. Re-scan before deleting it."))
