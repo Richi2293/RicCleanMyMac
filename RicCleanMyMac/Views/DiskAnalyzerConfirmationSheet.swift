@@ -94,7 +94,6 @@ struct DiskAnalyzerConfirmationSheet: View {
                      ? "Move to Trash (\(nodes.count))"
                      : "Delete Permanently (\(nodes.count))")
             }
-            .keyboardShortcut(.return)
             .buttonStyle(.borderedProminent)
             .tint(.red)
         }

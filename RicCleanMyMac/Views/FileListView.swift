@@ -147,11 +147,12 @@ struct FileListRow: View {
                     .frame(width: 16)
                     .help("Could not be read")
             case .normal:
-                // Only reached for the scan root (which is .normal but
-                // `isDeletable` returns false). Use a neutral placeholder.
-                Image(systemName: "circle.dashed")
-                    .foregroundColor(.secondary.opacity(0.4))
+                // A `.normal` node that is not deletable is a folder holding
+                // protected content (or the home folder itself).
+                Image(systemName: "lock")
+                    .foregroundColor(.secondary.opacity(0.6))
                     .frame(width: 16)
+                    .help("Protected: this folder contains read-only or system items")
             }
         }
     }
@@ -188,7 +189,7 @@ struct FileListRow: View {
     }
 
     private var sizeText: String {
-        if case .skipped = node.status { return "—" }
+        if case .skipped = node.status { return "-" }
         return node.formattedSize
     }
 

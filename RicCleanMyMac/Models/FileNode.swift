@@ -14,7 +14,7 @@ enum NodeStatus: Equatable {
     /// Traversed and measured, but protected by `ScanPolicy`. Not deletable.
     case readOnly
 
-    /// Not traversed at all — placeholder node with `size == 0`.
+    /// Not traversed at all: placeholder node with `size == 0`.
     case skipped(reason: String)
 
     /// The directory existed but could not be read (permissions, I/O error).
@@ -30,6 +30,11 @@ final class FileNode: Identifiable {
     private(set) var status: NodeStatus
     private(set) var children: [FileNode]?
     private(set) weak var parent: FileNode?
+
+    /// `true` when at least one descendant is not `.normal` (read-only, skipped
+    /// or inaccessible). Deleting such a folder would also delete, or try to
+    /// delete, content the scan policy protects, so the UI must refuse it.
+    private(set) var containsProtectedItems = false
 
     var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
@@ -83,6 +88,10 @@ final class FileNode: Identifiable {
     /// Creates a directory node and wires parent links on its children in one step.
     /// Pass `size` explicitly when the value is authoritative (e.g. reading from cache);
     /// otherwise it is computed as the sum of children's sizes.
+    ///
+    /// Files inside a `.readOnly` directory inherit `.readOnly`: the scan policy
+    /// classifies directories only, and a file is as protected as its folder.
+    /// Applying the rule here covers both fresh scans and older caches.
     static func directory(
         name: String,
         children: [FileNode],
@@ -94,8 +103,16 @@ final class FileNode: Identifiable {
         node.children = children
         for child in children {
             child.parent = node
+            if status == .readOnly, !child.isDirectory, child.status == .normal {
+                child.status = .readOnly
+            }
         }
+        node.containsProtectedItems = Self.anyProtected(in: children)
         return node
+    }
+
+    private static func anyProtected(in children: [FileNode]) -> Bool {
+        children.contains { $0.status != .normal || $0.containsProtectedItems }
     }
 
     /// Creates a directory node that could not be read (permission denied, I/O error).
@@ -127,6 +144,7 @@ final class FileNode: Identifiable {
     private func recalculateSizeToRoot() {
         if let children {
             size = children.reduce(Int64(0)) { $0 + $1.size }
+            containsProtectedItems = Self.anyProtected(in: children)
         }
         parent?.recalculateSizeToRoot()
     }

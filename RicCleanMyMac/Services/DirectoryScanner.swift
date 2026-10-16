@@ -219,7 +219,7 @@ final class DirectoryScanner: ObservableObject {
                 .volumeName
             let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
 
-            func buildTree(at url: URL, nameOverride: String? = nil) -> FileNode {
+            func buildTree(at url: URL, nameOverride: String? = nil, status: NodeStatus = .normal) -> FileNode {
                 directoriesCount += 1
                 let name = nameOverride ?? url.lastPathComponent
 
@@ -262,24 +262,11 @@ final class DirectoryScanner: ObservableObject {
                         case .scanned:
                             childNode = buildTree(at: itemURL)
                         case .readOnly:
-                            // Traverse and measure as usual, then re-wrap the result with
-                            // `.readOnly` status so the UI and deletion gate know. If the
-                            // inner traversal failed (e.g. permissions), preserve the
-                            // inaccessible node as-is instead of re-wrapping — that keeps
-                            // `children == nil` consistent with how `inaccessibleDirectory`
-                            // builds such nodes, and avoids the fragile assumption that
-                            // `buildTree` only returns `.normal` or `.inaccessible`.
-                            let scanned = buildTree(at: itemURL)
-                            if scanned.status == .inaccessible {
-                                childNode = scanned
-                            } else {
-                                childNode = FileNode.directory(
-                                    name: scanned.name,
-                                    children: scanned.children ?? [],
-                                    size: scanned.size,
-                                    status: .readOnly
-                                )
-                            }
+                            // Traverse and measure as usual, but mark the folder `.readOnly`
+                            // so the UI and the deletion gate know. Its files inherit the
+                            // status in `FileNode.directory`. An unreadable folder still
+                            // comes back as `.inaccessible`.
+                            childNode = buildTree(at: itemURL, status: .readOnly)
                         case .skipped(let reason):
                             // Do not traverse. Emit a placeholder with size 0 so
                             // the user still sees that the path exists but does
@@ -308,7 +295,7 @@ final class DirectoryScanner: ObservableObject {
                 }
 
                 children.sort { $0.size > $1.size }
-                return FileNode.directory(name: name, children: children, size: totalSize, status: .normal)
+                return FileNode.directory(name: name, children: children, size: totalSize, status: status)
             }
 
             // Validate the root up front so we can distinguish "root unreadable"
@@ -362,11 +349,32 @@ final class DirectoryScanner: ObservableObject {
     // MARK: - Deletion
 
     func isNodeDeletable(_ node: FileNode) -> Bool {
-        if node === scanResult?.root { return false }
+        deletionBlocker(for: node) == nil
+    }
+
+    /// Why `node` must not be deleted, or `nil` when it can be.
+    private func deletionBlocker(for node: FileNode) -> String? {
+        if node === scanResult?.root { return "Path is the scan root" }
         switch node.status {
-        case .normal: return true
-        case .readOnly, .skipped, .inaccessible: return false
+        case .normal: break
+        case .readOnly: return "Path is read-only"
+        case .skipped: return "Path is skipped by scan policy"
+        case .inaccessible: return "Path could not be read during the scan"
         }
+        if Self.isHomeOrAncestorOfHome(node.path) {
+            return "Path is your home folder or contains it"
+        }
+        if node.containsProtectedItems {
+            return "Folder contains protected items"
+        }
+        return nil
+    }
+
+    private static func isHomeOrAncestorOfHome(_ path: String) -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path.lowercased()
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
+        if candidate == home || candidate == "/" { return true }
+        return home.hasPrefix(candidate + "/")
     }
 
     func deleteSingleItem(_ node: FileNode) async -> DeletionResult {
@@ -400,21 +408,7 @@ final class DirectoryScanner: ObservableObject {
         logger.info("deleteNodes called with \(nodes.count) node(s), deleteMode=\(String(describing: self.deleteMode), privacy: .public)")
         for (index, node) in nodes.enumerated() {
             logger.info("  node[\(index)]: name=\(node.name, privacy: .public) path=\(node.path, privacy: .public) isDir=\(node.isDirectory) status=\(String(describing: node.status), privacy: .public)")
-            guard isNodeDeletable(node) else {
-                let reason: String
-                if node === scanResult?.root {
-                    reason = "Path is the scan root"
-                } else {
-                    switch node.status {
-                    case .readOnly: reason = "Path is read-only"
-                    case .skipped: reason = "Path is skipped by scan policy"
-                    case .inaccessible: reason = "Path could not be read during the scan"
-                    case .normal:
-                        // A .normal node that is not the root and is not deletable
-                        // is a contract violation of isNodeDeletable.
-                        reason = "Path is not deletable"
-                    }
-                }
+            if let reason = deletionBlocker(for: node) {
                 logger.warning("Skipped non-deletable path: \(node.path, privacy: .public) reason=\(reason, privacy: .public)")
                 failures.append(DeletionFailure(path: node.path, reason: reason))
                 continue
