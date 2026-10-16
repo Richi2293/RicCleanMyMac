@@ -4,13 +4,10 @@ struct DiskAnalyzerView: View {
     @EnvironmentObject var scanner: DirectoryScanner
 
     @State private var showConfirmation = false
-    @State private var showSingleDeleteConfirmation = false
     @State private var nodeToDelete: FileNode?
     @State private var deletionResult: DeletionResult?
-    @State private var isDeleting = false
     @State private var selectedRoot: DiskAnalyzerRoot = DiskAnalyzerRoot.load()
     @State private var showLargeFiles = false
-    @State private var largeFileCategory: SmartCategory?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +37,7 @@ struct DiskAnalyzerView: View {
 
                 contentView(for: currentNode)
 
-                if !scanner.selectedItems.isEmpty {
+                if !scanner.selectedNodes.isEmpty {
                     Divider()
                     bottomBar
                 }
@@ -59,8 +56,8 @@ struct DiskAnalyzerView: View {
         .sheet(isPresented: $showConfirmation) {
             bulkDeleteSheet
         }
-        .sheet(isPresented: $showSingleDeleteConfirmation) {
-            singleDeleteSheet
+        .sheet(item: $nodeToDelete) { node in
+            singleDeleteSheet(for: node)
         }
         .alert(
             scanner.lastError?.title ?? "",
@@ -75,7 +72,9 @@ struct DiskAnalyzerView: View {
             Text(error.message)
         }
         .sheet(isPresented: $showLargeFiles) {
-            if let category = largeFileCategory {
+            // Read from the scanner, not a copy taken on tap: categories are
+            // recomputed after every deletion.
+            if let category = scanner.smartCategories.first(where: { $0.id == "largeFiles" }) {
                 LargeFilesSheet(
                     nodes: category.nodes,
                     onNavigate: { node in
@@ -95,6 +94,7 @@ struct DiskAnalyzerView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             rootPicker
+                .disabled(scanner.isDeleting)
 
             if scanner.scanResult != nil {
                 Button {
@@ -102,6 +102,7 @@ struct DiskAnalyzerView: View {
                 } label: {
                     Label("Re-scan", systemImage: "arrow.clockwise")
                 }
+                .disabled(scanner.isDeleting)
             }
 
             Spacer()
@@ -154,8 +155,9 @@ struct DiskAnalyzerView: View {
                 children: node.children ?? [],
                 selectedItems: $scanner.selectedItems,
                 isDeletable: { scanner.isNodeDeletable($0) },
+                isDeletionRunning: scanner.isDeleting,
                 onNavigate: { scanner.navigateTo($0) },
-                onDelete: { nodeToDelete = $0; showSingleDeleteConfirmation = true }
+                onDelete: { nodeToDelete = $0 }
             )
             .frame(minWidth: 400)
 
@@ -243,22 +245,23 @@ struct DiskAnalyzerView: View {
             Button("Deselect All") {
                 scanner.selectedItems.removeAll()
             }
+            .disabled(scanner.isDeleting)
 
             Button(action: { showConfirmation = true }) {
                 HStack {
-                    if isDeleting {
+                    if scanner.isDeleting {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle())
                             .scaleEffect(0.8)
                     } else {
                         Image(systemName: "trash.fill")
                     }
-                    Text(isDeleting ? "Deleting..." : "Delete Selected")
+                    Text(scanner.isDeleting ? "Deleting..." : "Delete Selected")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
             }
-            .disabled(isDeleting)
+            .disabled(scanner.isDeleting)
             .buttonStyle(.borderedProminent)
             .tint(scanner.deleteMode == .permanent ? .red : .accentColor)
         }
@@ -271,7 +274,6 @@ struct DiskAnalyzerView: View {
 
     private func handleCategoryTap(_ category: SmartCategory) {
         if category.id == "largeFiles" {
-            largeFileCategory = category
             showLargeFiles = true
         } else if let largest = category.nodes.first {
             // `.log` files are leaves: open the folder that holds them.
@@ -294,20 +296,17 @@ struct DiskAnalyzerView: View {
         )
     }
 
-    @ViewBuilder
-    private var singleDeleteSheet: some View {
-        if let node = nodeToDelete {
-            DiskAnalyzerConfirmationSheet(
-                nodes: [node],
-                totalSize: node.size,
-                deleteMode: scanner.deleteMode,
-                onConfirm: {
-                    showSingleDeleteConfirmation = false
-                    Task { await performSingleDelete(node) }
-                },
-                onCancel: { showSingleDeleteConfirmation = false; nodeToDelete = nil }
-            )
-        }
+    private func singleDeleteSheet(for node: FileNode) -> some View {
+        DiskAnalyzerConfirmationSheet(
+            nodes: [node],
+            totalSize: node.size,
+            deleteMode: scanner.deleteMode,
+            onConfirm: {
+                nodeToDelete = nil
+                Task { await performSingleDelete(node) }
+            },
+            onCancel: { nodeToDelete = nil }
+        )
     }
 
     private func deletionBanner(_ result: DeletionResult) -> some View {
@@ -336,21 +335,16 @@ struct DiskAnalyzerView: View {
         }
     }
 
+    /// A `nil` result means the scanner refused because a deletion was
+    /// already running (for example a double click on the confirmation).
     private func performBulkDelete() async {
-        isDeleting = true
-        let result = await scanner.deleteSelectedItems()
-        await MainActor.run {
-            isDeleting = false
+        if let result = await scanner.deleteSelectedItems() {
             deletionResult = result
         }
     }
 
     private func performSingleDelete(_ node: FileNode) async {
-        isDeleting = true
-        let result = await scanner.deleteSingleItem(node)
-        await MainActor.run {
-            isDeleting = false
-            nodeToDelete = nil
+        if let result = await scanner.deleteSingleItem(node) {
             deletionResult = result
         }
     }
@@ -421,6 +415,7 @@ private struct LargeFilesSheet: View {
                 Spacer()
                 Button("Close") { onDismiss() }
                     .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
             }
             .padding()
 

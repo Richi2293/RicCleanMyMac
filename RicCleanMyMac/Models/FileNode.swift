@@ -135,16 +135,45 @@ nonisolated final class FileNode: Identifiable, @unchecked Sendable {
     // MARK: - Mutations
 
     var relativeSize: Double {
-        guard let parent, parent.size > 0 else { return 1.0 }
+        guard let parent else { return 1.0 }
+        guard parent.size > 0 else { return 0 }
         return Double(size) / Double(parent.size)
     }
 
     func removeChild(_ child: FileNode) {
+        removeChildren(withIDs: [child.id])
+    }
+
+    /// Removes several children at once, recalculating sizes up the chain a
+    /// single time. Removing them one by one costs children x removals.
+    func removeChildren(withIDs ids: Set<ObjectIdentifier>) {
+        guard let current = children, !ids.isEmpty else { return }
+        let remaining = current.filter { !ids.contains($0.id) }
+        guard remaining.count != current.count else { return }
+        children = remaining
+        recalculateSizeToRoot()
+    }
+
+    /// Puts `replacement` in place of `child`, for a folder measured again
+    /// after a deletion failed halfway. Children stay sorted by size.
+    func replaceChild(_ child: FileNode, with replacement: FileNode) {
         guard var current = children,
               let index = current.firstIndex(where: { $0 === child }) else { return }
-        current.remove(at: index)
+        current[index] = replacement
+        current.sort { $0.size > $1.size }
         children = current
+        replacement.parent = self
         recalculateSizeToRoot()
+    }
+
+    /// `true` when `self` is `node` or lies somewhere inside it.
+    func isWithin(_ node: FileNode) -> Bool {
+        var current: FileNode? = self
+        while let candidate = current {
+            if candidate === node { return true }
+            current = candidate.parent
+        }
+        return false
     }
 
     private func recalculateSizeToRoot() {

@@ -4,6 +4,8 @@ struct FileListView: View {
     let children: [FileNode]
     @Binding var selectedItems: Set<ObjectIdentifier>
     let isDeletable: (FileNode) -> Bool
+    /// While a deletion runs, no other deletion can be started from the list.
+    let isDeletionRunning: Bool
     let onNavigate: (FileNode) -> Void
     let onDelete: (FileNode) -> Void
 
@@ -18,7 +20,7 @@ struct FileListView: View {
                     onNavigate: { onNavigate(node) }
                 )
                 .contextMenu {
-                    if isDeletable(node) {
+                    if isDeletable(node) && !isDeletionRunning {
                         Button(role: .destructive) {
                             onDelete(node)
                         } label: {

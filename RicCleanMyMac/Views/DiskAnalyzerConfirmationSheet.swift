@@ -96,6 +96,7 @@ struct DiskAnalyzerConfirmationSheet: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
+            .disabled(nodes.isEmpty)
         }
         .padding()
     }

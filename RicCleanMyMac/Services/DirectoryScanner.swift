@@ -21,6 +21,9 @@ final class DirectoryScanner: ObservableObject {
     @Published var diskSpace: DiskSpace?
     @Published var smartCategories: [SmartCategory] = []
 
+    /// `true` while a deletion runs. Only one deletion runs at a time.
+    @Published private(set) var isDeleting = false
+
     /// Bumped every time the current tree is mutated in place (deletion).
     /// Views that cache data derived from a node (the sunburst) observe it,
     /// because the node itself stays the same object.
@@ -38,6 +41,7 @@ final class DirectoryScanner: ObservableObject {
     private var scanTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var diskSpaceTask: Task<Void, Never>?
+    private var diskSpaceRefreshPending = false
 
     /// Identifies the scan whose progress the UI shows. Progress callbacks
     /// from an older scan that is still winding down are ignored.
@@ -47,9 +51,11 @@ final class DirectoryScanner: ObservableObject {
     /// does not start a new one by itself when it reappears.
     private(set) var skipsAutoStart = false
 
-    /// The most recent cache save. Saves read the whole tree off the main
-    /// thread, so every in-place mutation of the tree must wait for it first.
-    private var saveTask: Task<Void, Never>?
+    /// The most recent background work on a tree (cache save, smart
+    /// categories). It reads the tree off the main thread, so every in-place
+    /// mutation of the tree must wait for it first. Each task waits for the
+    /// previous one.
+    private var backgroundTask: Task<Void, Never>?
 
     /// Returns the cache URL for a given scan root. The filename embeds a
     /// short hash of the root so different roots never collide.
@@ -100,12 +106,21 @@ final class DirectoryScanner: ObservableObject {
     /// Reads the boot volume's capacity. Without `forceRefresh` it runs only
     /// once per session; deletions pass `true` to show the freed space.
     func loadDiskSpace(forceRefresh: Bool = false) {
-        guard diskSpaceTask == nil, forceRefresh || diskSpace == nil else { return }
+        guard forceRefresh || diskSpace == nil else { return }
+        guard diskSpaceTask == nil else {
+            // A read is running and may predate the change: read again after it.
+            if forceRefresh { diskSpaceRefreshPending = true }
+            return
+        }
         diskSpaceTask = Task {
             if let space = await DiskAnalyzer().getDiskSpace() {
                 diskSpace = space
             }
             diskSpaceTask = nil
+            if diskSpaceRefreshPending {
+                diskSpaceRefreshPending = false
+                loadDiskSpace(forceRefresh: true)
+            }
         }
     }
 
@@ -157,28 +172,52 @@ final class DirectoryScanner: ObservableObject {
     private func handleScanSuccess(_ result: DirectoryScanResult) {
         scanResult = result
         currentNode = result.root
-        smartCategories = result.root.extractSmartCategories()
         isScanning = false
-        scheduleCacheSave(result)
+        scheduleBackgroundWork(on: result, savingTo: currentRootPath.flatMap(cacheURL(forRootPath:)))
     }
 
-    /// Saves `result` to the cache of the current root, after any save still
-    /// running. The work happens off the main thread because serialization
-    /// and LZFSE compression are CPU-bound on large trees.
-    private func scheduleCacheSave(_ result: DirectoryScanResult) {
-        guard let rootPath = currentRootPath,
-              let cacheURL = cacheURL(forRootPath: rootPath) else { return }
-        let previousSave = saveTask
-        saveTask = Task { [weak self] in
-            await previousSave?.value
-            do {
-                try await Task.detached(priority: .utility) {
-                    try Self.saveToDisk(result, cacheURL: cacheURL)
-                }.value
-            } catch {
-                logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
-                self?.lastError = .cacheSaveFailed(error.localizedDescription)
+    private struct BackgroundWorkOutcome: Sendable {
+        let categories: [SmartCategory]
+        let saveError: String?
+    }
+
+    /// Computes the smart categories of `result` and, with a `cacheURL`, saves
+    /// it, after any background work still running. Both walk the whole tree,
+    /// so they run off the main thread; categories come first so they show
+    /// sooner. Categories are applied only if `result` is still on screen.
+    private func scheduleBackgroundWork(on result: DirectoryScanResult, savingTo cacheURL: URL?) {
+        let previous = backgroundTask
+        backgroundTask = Task { [weak self] in
+            await previous?.value
+            let outcome = await Task.detached(priority: .utility) { () -> BackgroundWorkOutcome in
+                let categories = result.root.extractSmartCategories()
+                var saveError: String?
+                if let cacheURL {
+                    do {
+                        try Self.saveToDisk(result, cacheURL: cacheURL)
+                    } catch {
+                        logger.error("Failed to save scan cache: \(error.localizedDescription, privacy: .public)")
+                        saveError = error.localizedDescription
+                    }
+                }
+                return BackgroundWorkOutcome(categories: categories, saveError: saveError)
+            }.value
+            guard let self else { return }
+            if self.scanResult?.root === result.root {
+                self.smartCategories = outcome.categories
             }
+            if let saveError = outcome.saveError {
+                self.lastError = .cacheSaveFailed(saveError)
+            }
+        }
+    }
+
+    /// Waits until no background work reads a tree, including work that was
+    /// scheduled while waiting.
+    private func waitForBackgroundWork() async {
+        while let task = backgroundTask {
+            await task.value
+            if backgroundTask == task { return }
         }
     }
 
@@ -211,7 +250,7 @@ final class DirectoryScanner: ObservableObject {
             case .success(let result):
                 self.scanResult = result
                 self.currentNode = result.root
-                self.smartCategories = result.root.extractSmartCategories()
+                self.scheduleBackgroundWork(on: result, savingTo: nil)
             case .notFound:
                 // No cache yet: the UI handles this by offering a fresh scan.
                 break
@@ -357,34 +396,50 @@ final class DirectoryScanner: ObservableObject {
         return home.hasPrefix(candidate + "/")
     }
 
-    func deleteSingleItem(_ node: FileNode) async -> DeletionResult {
+    /// Deletes `node`. Returns `nil` without doing anything when another
+    /// deletion is running.
+    func deleteSingleItem(_ node: FileNode) async -> DeletionResult? {
         await deleteNodes([node])
     }
 
-    func deleteSelectedItems() async -> DeletionResult {
+    /// Deletes the selected items. Returns `nil` without doing anything when
+    /// another deletion is running or nothing is selected.
+    func deleteSelectedItems() async -> DeletionResult? {
         let nodes = selectedNodes
-        guard !nodes.isEmpty else {
-            return DeletionResult(successCount: 0, freedSize: 0, failures: [])
-        }
-        let result = await deleteNodes(nodes)
-        selectedItems.removeAll()
-        return result
+        guard !nodes.isEmpty else { return nil }
+        return await deleteNodes(nodes)
     }
 
-    private func deleteNodes(_ nodes: [FileNode]) async -> DeletionResult {
-        struct DeletionJob: Sendable {
-            let index: Int
-            let path: String
-            let size: Int64
-        }
-        enum Outcome: Sendable {
-            case success(index: Int, freed: Int64)
-            case failure(DeletionFailure)
-        }
+    private struct DeletionJob: Sendable {
+        let index: Int
+        let path: String
+        let parentPath: String
+        let size: Int64
+        let isDirectory: Bool
+    }
+
+    private enum DeletionOutcome: Sendable {
+        /// Deleted from disk: remove the node.
+        case deleted(index: Int, freed: Int64)
+        /// No longer on disk: remove the node, and tell the user.
+        case gone(index: Int, failure: DeletionFailure)
+        /// A permanent deletion failed halfway: what is left replaces the node.
+        case partiallyDeleted(index: Int, remaining: FileNode, failure: DeletionFailure)
+        case failed(DeletionFailure)
+    }
+
+    private func deleteNodes(_ nodes: [FileNode]) async -> DeletionResult? {
+        guard !isDeleting, let result = scanResult, let rootPath = currentRootPath else { return nil }
+        isDeleting = true
+        defer { isDeleting = false }
+
+        // Captured now: if the user switches root meanwhile, the tree and the
+        // cache of this root are still the ones to update.
+        let cacheURL = cacheURL(forRootPath: rootPath)
+        let scanRootPath = result.root.path
 
         var jobs: [DeletionJob] = []
         var failures: [DeletionFailure] = []
-
         for (index, node) in nodes.enumerated() {
             if let reason = deletionBlocker(for: node) {
                 // Paths use the default (private) log privacy: they are user data.
@@ -392,76 +447,147 @@ final class DirectoryScanner: ObservableObject {
                 failures.append(DeletionFailure(path: node.path, reason: reason))
                 continue
             }
-            jobs.append(DeletionJob(index: index, path: node.path, size: node.size))
+            jobs.append(DeletionJob(
+                index: index,
+                path: node.path,
+                parentPath: node.parent?.path ?? "",
+                size: node.size,
+                isDirectory: node.isDirectory
+            ))
         }
 
         let deleteMode = self.deleteMode
-        let outcomes: [Outcome] = await Task.detached(priority: .userInitiated) {
-            let fm = FileManager.default
-            var results: [Outcome] = []
-            results.reserveCapacity(jobs.count)
-            for job in jobs {
-                guard fm.fileExists(atPath: job.path) else {
-                    results.append(.failure(DeletionFailure(
-                        path: job.path,
-                        reason: "Item no longer exists"
-                    )))
-                    continue
-                }
-                do {
-                    switch deleteMode {
-                    case .trash:
-                        try fm.trashItem(at: URL(fileURLWithPath: job.path), resultingItemURL: nil)
-                    case .permanent:
-                        try fm.removeItem(atPath: job.path)
-                    }
-                    results.append(.success(index: job.index, freed: job.size))
-                } catch {
-                    results.append(.failure(DeletionFailure(
-                        path: job.path,
-                        reason: error.localizedDescription
-                    )))
-                }
-            }
-            return results
+        let outcomes = await Task.detached(priority: .userInitiated) {
+            jobs.map { Self.performDeletion($0, mode: deleteMode, scanRootPath: scanRootPath) }
         }.value
 
-        // A cache save may still be reading the tree in the background:
-        // wait for it before removing nodes.
-        await saveTask?.value
+        await waitForBackgroundWork()
 
         var successCount = 0
         var freedSize: Int64 = 0
+        var removedByParent: [ObjectIdentifier: (parent: FileNode, ids: Set<ObjectIdentifier>)] = [:]
+        var detachedNodes: [(old: FileNode, replacement: FileNode?)] = []
+
+        func scheduleRemoval(of node: FileNode) {
+            guard let parent = node.parent else { return }
+            removedByParent[parent.id, default: (parent, [])].ids.insert(node.id)
+            detachedNodes.append((node, nil))
+        }
+
         for outcome in outcomes {
             switch outcome {
-            case .success(let index, let freed):
-                let node = nodes[index]
-                node.parent?.removeChild(node)
+            case .deleted(let index, let freed):
+                scheduleRemoval(of: nodes[index])
                 successCount += 1
                 freedSize += freed
-            case .failure(let failure):
-                logger.error("Failed to delete \(failure.path): \(failure.reason)")
+            case .gone(let index, let failure):
+                scheduleRemoval(of: nodes[index])
+                failures.append(failure)
+            case .partiallyDeleted(let index, let remaining, let failure):
+                let node = nodes[index]
+                node.parent?.replaceChild(node, with: remaining)
+                detachedNodes.append((node, remaining))
+                failures.append(failure)
+            case .failed(let failure):
                 failures.append(failure)
             }
         }
-        if successCount > 0 {
-            treeRevision += 1
-            if let scanResult {
-                smartCategories = scanResult.root.extractSmartCategories()
-                scheduleCacheSave(scanResult)
+        for (parent, ids) in removedByParent.values {
+            parent.removeChildren(withIDs: ids)
+        }
+        for failure in failures {
+            logger.error("Failed to delete \(failure.path): \(failure.reason)")
+        }
+
+        if !detachedNodes.isEmpty {
+            if scanResult?.root === result.root {
+                selectedItems.subtract(detachedNodes.map(\.old.id))
+                // The folder on screen may have been deleted or replaced.
+                if let current = currentNode,
+                   let hit = detachedNodes.first(where: { current.isWithin($0.old) }) {
+                    currentNode = hit.replacement ?? hit.old.parent ?? result.root
+                }
+                treeRevision += 1
             }
+            scheduleBackgroundWork(on: result, savingTo: cacheURL)
             loadDiskSpace(forceRefresh: true)
         }
 
-        let result = DeletionResult(
-            successCount: successCount,
-            freedSize: freedSize,
-            failures: failures
-        )
         if !failures.isEmpty {
             lastError = .deletionFailed(failures: failures)
         }
-        return result
+        return DeletionResult(successCount: successCount, freedSize: freedSize, failures: failures)
+    }
+
+    /// How much an item may have grown since the scan before deletion is
+    /// refused: 10% of the size shown, at least 10 MB.
+    nonisolated private static func allowedGrowth(over size: Int64) -> Int64 {
+        max(size / 10, 10 * 1024 * 1024)
+    }
+
+    /// Checks that the item on disk is still the one the user confirmed,
+    /// then deletes it. Runs off the main thread.
+    nonisolated private static func performDeletion(
+        _ job: DeletionJob,
+        mode: DeleteMode,
+        scanRootPath: String
+    ) -> DeletionOutcome {
+        let fm = FileManager.default
+        func failure(_ reason: String) -> DeletionFailure {
+            DeletionFailure(path: job.path, reason: reason)
+        }
+
+        // `attributesOfItem` does not follow symlinks, so a broken link is
+        // still found and the link itself is what gets checked.
+        guard let attributes = try? fm.attributesOfItem(atPath: job.path) else {
+            return .gone(index: job.index, failure: failure("Item no longer exists"))
+        }
+        let type = attributes[.type] as? FileAttributeType
+        if job.isDirectory != (type == .typeDirectory) {
+            return .failed(failure("Item changed since the scan. Re-scan before deleting it."))
+        }
+        // A folder on the path that became a symlink would redirect the deletion.
+        if resolvedRealPath(job.parentPath).lowercased() != job.parentPath.lowercased() {
+            return .failed(failure("A folder on this path changed since the scan. Re-scan before deleting it."))
+        }
+
+        let url = URL(fileURLWithPath: job.path)
+        let currentSize: Int64
+        if job.isDirectory {
+            let fresh = TreeBuilder(scanRoot: URL(fileURLWithPath: scanRootPath), ignoresHardLinkedFiles: true)
+                .buildTree(startingAt: url, name: url.lastPathComponent)
+            guard fresh.isDeletableByPolicy else {
+                return .failed(failure("Folder now contains protected items"))
+            }
+            currentSize = fresh.size
+        } else {
+            let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey])
+            currentSize = Int64(values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? values?.fileSize ?? 0)
+        }
+        if currentSize > job.size + allowedGrowth(over: job.size) {
+            return .failed(failure("Item grew since the scan. Re-scan before deleting it."))
+        }
+
+        do {
+            switch mode {
+            case .trash:
+                try fm.trashItem(at: url, resultingItemURL: nil)
+            case .permanent:
+                try fm.removeItem(at: url)
+            }
+            return .deleted(index: job.index, freed: job.size)
+        } catch {
+            let reason = failure(error.localizedDescription)
+            // Moving to the Trash is all or nothing; a permanent deletion of a
+            // folder can stop halfway and leave part of it behind.
+            guard mode == .permanent, job.isDirectory else { return .failed(reason) }
+            guard (try? fm.attributesOfItem(atPath: job.path)) != nil else {
+                return .deleted(index: job.index, freed: job.size)
+            }
+            let remaining = TreeBuilder(scanRoot: URL(fileURLWithPath: scanRootPath))
+                .buildTree(startingAt: url, name: url.lastPathComponent)
+            return .partiallyDeleted(index: job.index, remaining: remaining, failure: reason)
+        }
     }
 
     // MARK: - Persistence
