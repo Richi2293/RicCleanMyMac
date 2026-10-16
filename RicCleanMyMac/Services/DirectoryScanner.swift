@@ -380,6 +380,14 @@ final class DirectoryScanner: ObservableObject {
         return path
     }
 
+    /// The selected children of the current node. Selection never spans
+    /// folders, because every navigation clears it, so filtering the direct
+    /// children is enough.
+    var selectedNodes: [FileNode] {
+        guard !selectedItems.isEmpty, let children = currentNode?.children else { return [] }
+        return children.filter { selectedItems.contains($0.id) }
+    }
+
     func navigateTo(_ node: FileNode) {
         guard node.isDirectory else { return }
         selectedItems.removeAll()
@@ -428,10 +436,10 @@ final class DirectoryScanner: ObservableObject {
     }
 
     func deleteSelectedItems() async -> DeletionResult {
-        guard let current = currentNode else {
+        let nodes = selectedNodes
+        guard !nodes.isEmpty else {
             return DeletionResult(successCount: 0, freedSize: 0, failures: [])
         }
-        let nodes = current.findNodes(withIDs: selectedItems)
         let result = await deleteNodes(nodes)
         selectedItems.removeAll()
         return result

@@ -231,10 +231,10 @@ struct DiskAnalyzerView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 8) {
-            let selectedCount = scanner.selectedItems.count
+            let selectedNodes = scanner.selectedNodes
             let selectedSize = selectedNodes.reduce(Int64(0)) { $0 + $1.size }
 
-            Text("\(selectedCount) item(s) selected — \(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .file))")
+            Text("\(selectedNodes.count) item(s) selected, \(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .file))")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
@@ -279,12 +279,9 @@ struct DiskAnalyzerView: View {
         }
     }
 
-    private var selectedNodes: [FileNode] {
-        scanner.currentNode?.findNodes(withIDs: scanner.selectedItems) ?? []
-    }
-
     @ViewBuilder
     private var bulkDeleteSheet: some View {
+        let selectedNodes = scanner.selectedNodes
         DiskAnalyzerConfirmationSheet(
             nodes: selectedNodes,
             totalSize: selectedNodes.reduce(Int64(0)) { $0 + $1.size },
@@ -319,7 +316,7 @@ struct DiskAnalyzerView: View {
                 .font(.caption)
                 .foregroundColor(result.isFullSuccess ? .green : .orange)
             if result.failedCount > 0 {
-                Text("\(result.successCount) deleted, \(result.failedCount) failed — freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
+                Text("\(result.successCount) deleted, \(result.failedCount) failed, freed \(ByteCountFormatter.string(fromByteCount: result.freedSize, countStyle: .file))")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
