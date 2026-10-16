@@ -3,7 +3,7 @@ import Combine
 import os
 import CommonCrypto
 
-private let logger = Logger(
+nonisolated private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "RicCleanMyMac",
     category: "DirectoryScanner"
 )

@@ -7,7 +7,7 @@ import Foundation
 /// traversal decision in `buildTree`; this type records the outcome on
 /// the persisted node. They deliberately carry parallel-looking cases
 /// so that mapping from one to the other at scan time is mechanical.
-enum NodeStatus: Equatable {
+nonisolated enum NodeStatus: Equatable {
     /// Traversed normally. Deletable from the UI.
     case normal
 
@@ -22,7 +22,13 @@ enum NodeStatus: Equatable {
     case inaccessible
 }
 
-final class FileNode: Identifiable {
+///
+/// Threading: a tree is built off the main thread (scan or cache read), then
+/// handed to `DirectoryScanner` on the main thread, which is the only place
+/// that mutates it. Background work may read a tree only while no mutation
+/// can run; `DirectoryScanner` enforces this by waiting for cache saves
+/// before deleting. Hence `@unchecked Sendable`.
+nonisolated final class FileNode: Identifiable, @unchecked Sendable {
     var id: ObjectIdentifier { ObjectIdentifier(self) }
     let name: String
     let isDirectory: Bool
@@ -36,7 +42,7 @@ final class FileNode: Identifiable {
     /// delete, content the scan policy protects, so the UI must refuse it.
     private(set) var containsProtectedItems = false
 
-    var formattedSize: String {
+    @MainActor var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
@@ -279,7 +285,7 @@ final class FileNode: Identifiable {
     }
 }
 
-extension FileNode: Hashable {
+nonisolated extension FileNode: Hashable {
     static func == (lhs: FileNode, rhs: FileNode) -> Bool {
         lhs === rhs
     }

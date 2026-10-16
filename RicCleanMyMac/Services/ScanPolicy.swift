@@ -7,7 +7,7 @@ import Foundation
 /// centralized here so the deletion gate and the traversal gate can never
 /// diverge. The type is a pure function of its input: no filesystem access,
 /// no mutable state.
-enum ScanPolicy {
+nonisolated enum ScanPolicy {
     /// How the scanner should treat a given path.
     enum Classification: Equatable {
         /// Traverse normally, node is deletable.

@@ -1,11 +1,11 @@
 import Foundation
 
-struct ScanProgress {
+nonisolated struct ScanProgress: Sendable {
     let filesScanned: Int
     let currentPath: String
 }
 
-enum DeleteMode: String, CaseIterable {
+nonisolated enum DeleteMode: String, CaseIterable, Sendable {
     case trash = "Trash"
     case permanent = "Permanent"
 
@@ -17,7 +17,7 @@ enum DeleteMode: String, CaseIterable {
     }
 }
 
-struct DeletionFailure: Identifiable {
+nonisolated struct DeletionFailure: Identifiable, Sendable {
     let id = UUID()
     let path: String
     let reason: String

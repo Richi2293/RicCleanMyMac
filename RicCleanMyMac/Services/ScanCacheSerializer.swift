@@ -1,6 +1,6 @@
 import Foundation
 
-enum ScanCacheError: Error {
+nonisolated enum ScanCacheError: Error {
     case invalidMagic
     case unsupportedVersion(UInt8)
     case truncatedData
@@ -37,7 +37,7 @@ enum ScanCacheError: Error {
 ///     skipReasonBytes variable   UTF-8, present only when status == skipped
 ///     childCount      4 bytes    UInt32, capped at `maxChildCount` on read
 ///     children        variable   recursive node records
-enum ScanCacheSerializer {
+nonisolated enum ScanCacheSerializer {
     private static let magic: [UInt8] = [0x52, 0x43, 0x53, 0x4E] // "RCSN"
     private static let currentVersion: UInt8 = 1
 
@@ -213,7 +213,7 @@ enum ScanCacheSerializer {
 
 // MARK: - Binary Reader
 
-private struct BinaryReader {
+nonisolated private struct BinaryReader {
     let data: Data
     var offset: Int = 0
 
@@ -290,7 +290,7 @@ private struct BinaryReader {
 
 // MARK: - Data Writing Helpers
 
-private extension Data {
+nonisolated private extension Data {
     mutating func appendUInt8(_ value: UInt8) {
         append(value)
     }

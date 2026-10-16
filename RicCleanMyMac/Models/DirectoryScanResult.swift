@@ -1,6 +1,6 @@
 import Foundation
 
-struct DirectoryScanResult {
+nonisolated struct DirectoryScanResult: Sendable {
     let root: FileNode
     let totalFiles: Int
     let totalDirectories: Int
