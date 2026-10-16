@@ -51,7 +51,8 @@ struct DiskAnalyzerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             scanner.loadDiskSpace()
-            if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache {
+            if scanner.scanResult == nil && !scanner.isScanning && !scanner.isLoadingCache
+                && !scanner.skipsAutoStart {
                 startOrLoad(for: selectedRoot)
             }
         }

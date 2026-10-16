@@ -39,8 +39,16 @@ nonisolated enum ScanPolicy {
         "/.documentrevisions-v100",
         "/.temporaryitems",
         "/.trashes",
-        "/volumes"
+        "/volumes",
+        // Automounted network locations: reading them can hang on a slow server.
+        "/network",
+        "/net",
+        "/home"
     ]
+
+    /// Top-level symlinks into `/private`. Paths are compared in their
+    /// `/private/...` form so the `/private/var/...` rules always apply.
+    private static let privateAliases: [String] = ["/var", "/tmp", "/etc"]
 
     /// Exceptions to `hardSkipPrefixes`. If a path matches both a hard-skip
     /// prefix and an exception prefix, the exception wins and the path is
@@ -94,16 +102,16 @@ nonisolated enum ScanPolicy {
     ///     Callers should resolve this once per scan and pass it here.
     ///     Pass `nil` only when resolution is impossible: the classifier
     ///     falls back to scanning `/Volumes/*` defensively in that case.
+    ///   - scanRoot: The root of the current scan. When it is on a volume
+    ///     under `/Volumes`, that volume is scanned instead of skipped.
     /// - Returns: How the scanner should treat this path.
     static func classify(
         _ url: URL,
         homeDirectory: URL,
-        bootVolumeName: String?
+        bootVolumeName: String?,
+        scanRoot: URL? = nil
     ) -> Classification {
-        let normalized = url.standardizedFileURL.path
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let absolute = normalized.isEmpty ? "/" : "/" + normalized
-        let lower = absolute.lowercased()
+        let lower = normalizedLowercasePath(of: url)
 
         // The root "/" itself is always scanned. Without this, the whole tree
         // starts as `.scanned` because "/" does not match any prefix anyway,
@@ -119,6 +127,13 @@ nonisolated enum ScanPolicy {
         // which is firmlinked at `/Volumes/<name>` on modern macOS, remains
         // scannable when scanning from `/`.
         if lower.hasPrefix("/volumes/") {
+            // A scan the user started on an external volume covers that volume.
+            if let scanRoot {
+                let rootLower = normalizedLowercasePath(of: scanRoot)
+                if rootLower.hasPrefix("/volumes/"), path(lower, isUnderPrefix: rootLower) {
+                    return .scanned
+                }
+            }
             let resolvedBootName = (bootVolumeName ?? Self.bootVolumeName()).lowercased()
             if resolvedBootName.isEmpty {
                 // Boot volume name could not be resolved. We can't tell whether this
@@ -162,6 +177,18 @@ nonisolated enum ScanPolicy {
         }
 
         return .scanned
+    }
+
+    /// Standardized, lowercased absolute path without a trailing slash, with
+    /// `/var`, `/tmp` and `/etc` rewritten to their `/private/...` form.
+    private static func normalizedLowercasePath(of url: URL) -> String {
+        let trimmed = url.standardizedFileURL.path
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let lower = (trimmed.isEmpty ? "/" : "/" + trimmed).lowercased()
+        for alias in privateAliases where path(lower, isUnderPrefix: alias) {
+            return "/private" + lower
+        }
+        return lower
     }
 
     /// Resolve the name of the boot volume (the one mounted at `/`). This is

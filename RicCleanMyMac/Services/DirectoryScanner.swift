@@ -39,6 +39,14 @@ final class DirectoryScanner: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var diskSpaceTask: Task<Void, Never>?
 
+    /// Identifies the scan whose progress the UI shows. Progress callbacks
+    /// from an older scan that is still winding down are ignored.
+    private var activeScanID: UUID?
+
+    /// `true` after the user cancelled a scan or a scan failed, so the view
+    /// does not start a new one by itself when it reappears.
+    private(set) var skipsAutoStart = false
+
     /// The most recent cache save. Saves read the whole tree off the main
     /// thread, so every in-place mutation of the tree must wait for it first.
     private var saveTask: Task<Void, Never>?
@@ -76,6 +84,8 @@ final class DirectoryScanner: ObservableObject {
         scanTask = nil
         loadTask?.cancel()
         loadTask = nil
+        activeScanID = nil
+        skipsAutoStart = false
 
         currentRootPath = rootPath
         scanResult = nil
@@ -99,11 +109,11 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
-    /// The real path of `path`, with symlinks resolved. Scan roots are
-    /// resolved before use so node paths match what `ScanPolicy` and the
-    /// home-folder check expect: `/Volumes/Macintosh HD` is a symlink to `/`.
+    /// The real path of `path`. Scan roots are resolved before use so node
+    /// paths match what `ScanPolicy` and the home-folder check expect:
+    /// `/Volumes/Macintosh HD` is a symlink to `/`.
     nonisolated private static func resolvedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        resolvedRealPath(path)
     }
 
     func scan(rootPath requestedPath: String) {
@@ -112,11 +122,14 @@ final class DirectoryScanner: ObservableObject {
         isScanning = true
 
         let startTime = Date()
+        let scanID = UUID()
+        activeScanID = scanID
 
         scanTask = Task { [weak self] in
             let progressHandler: @Sendable (ScanProgress) -> Void = { [weak self] progress in
                 Task { @MainActor [weak self] in
-                    self?.progress = progress
+                    guard let self, self.activeScanID == scanID else { return }
+                    self.progress = progress
                 }
             }
 
@@ -133,6 +146,7 @@ final class DirectoryScanner: ObservableObject {
                 self.handleScanSuccess(result)
             case .failed(let reason):
                 self.isScanning = false
+                self.skipsAutoStart = true
                 self.lastError = .scanFailed(reason)
             case .cancelled:
                 self.isScanning = false
@@ -207,13 +221,24 @@ final class DirectoryScanner: ObservableObject {
         }
     }
 
+    /// Stops the running scan or cache load. When a scan is cancelled and the
+    /// root has a saved scan (a "Re-scan" cancelled midway), that scan is
+    /// shown again instead of an empty view.
     func cancel() {
+        let wasScanning = isScanning
         scanTask?.cancel()
         scanTask = nil
         loadTask?.cancel()
         loadTask = nil
+        activeScanID = nil
         isScanning = false
         isLoadingCache = false
+
+        if wasScanning, scanResult == nil,
+           let rootPath = currentRootPath, hasCachedResult(forRootPath: rootPath) {
+            loadCachedResult(forRootPath: rootPath)
+        }
+        skipsAutoStart = true
     }
 
     // MARK: - Scan worker
@@ -231,148 +256,36 @@ final class DirectoryScanner: ObservableObject {
         startTime: Date,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async -> ScanOutcome {
-        return await Task.detached(priority: .userInitiated) { () -> ScanOutcome in
-            let fileManager = FileManager.default
-            var filesCount = 0
-            var directoriesCount = 0
-            var scannedCount = 0
-            var lastProgressUpdate: CFAbsoluteTime = 0
-
-            // Throttle main-actor progress dispatches to ~10 Hz. Any higher and
-            // the main actor drowns in hops during deep recursion.
-            let progressInterval: CFAbsoluteTime = 0.1
-
-            let bootVolumeName: String? = try? URL(fileURLWithPath: "/")
-                .resourceValues(forKeys: [.volumeNameKey])
-                .volumeName
-            let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
-
-            // Allocated size is what a file really takes on disk: it is ~0 for
-            // iCloud files that are not downloaded and smaller for sparse files.
-            // APFS clones still count in full, macOS does not expose shared blocks.
-            let resourceKeys: [URLResourceKey] = [
-                .isDirectoryKey,
-                .totalFileAllocatedSizeKey,
-                .fileAllocatedSizeKey,
-                .fileSizeKey,
-                .linkCountKey
-            ]
-            let resourceKeySet = Set(resourceKeys)
-
-            // Files with several hard links are counted once, at the first path met.
-            var seenHardLinks = Set<NSObject>()
-
-            func diskSize(of values: URLResourceValues?, at url: URL) -> Int64 {
-                guard let values else { return 0 }
-                if let linkCount = values.linkCount, linkCount > 1,
-                   let identifier = try? url.resourceValues(forKeys: [.fileResourceIdentifierKey])
-                       .fileResourceIdentifier as? NSObject {
-                    if !seenHardLinks.insert(identifier).inserted { return 0 }
-                }
-                let size = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0
-                return Int64(size)
-            }
-
-            func buildTree(at url: URL, nameOverride: String? = nil, status: NodeStatus = .normal) -> FileNode {
-                directoriesCount += 1
-                let name = nameOverride ?? url.lastPathComponent
-
-                let contents: [URL]
-                do {
-                    contents = try fileManager.contentsOfDirectory(
-                        at: url,
-                        includingPropertiesForKeys: resourceKeys,
-                        options: []
-                    )
-                } catch {
-                    logger.debug("contentsOfDirectory failed at \(url.path): \(error.localizedDescription)")
-                    return FileNode.inaccessibleDirectory(name: name)
-                }
-
-                var children: [FileNode] = []
-                children.reserveCapacity(contents.count)
-                var totalSize: Int64 = 0
-
-                for itemURL in contents {
-                    if Task.isCancelled { break }
-
-                    let values: URLResourceValues?
-                    do {
-                        values = try itemURL.resourceValues(forKeys: resourceKeySet)
-                    } catch {
-                        logger.debug("resourceValues failed at \(itemURL.path): \(error.localizedDescription)")
-                        values = nil
-                    }
-                    let isDir = values?.isDirectory ?? false
-
-                    if isDir {
-                        let classification = ScanPolicy.classify(
-                            itemURL,
-                            homeDirectory: homeDirectory,
-                            bootVolumeName: bootVolumeName
-                        )
-                        let childNode: FileNode
-                        switch classification {
-                        case .scanned:
-                            childNode = buildTree(at: itemURL)
-                        case .readOnly:
-                            // Traverse and measure as usual, but mark the folder `.readOnly`
-                            // so the UI and the deletion gate know. Its files inherit the
-                            // status in `FileNode.directory`. An unreadable folder still
-                            // comes back as `.inaccessible`.
-                            childNode = buildTree(at: itemURL, status: .readOnly)
-                        case .skipped(let reason):
-                            // Do not traverse. Emit a placeholder with size 0 so
-                            // the user still sees that the path exists but does
-                            // not pay the cost of reading its contents.
-                            childNode = FileNode.skippedDirectory(
-                                name: itemURL.lastPathComponent,
-                                reason: reason
-                            )
-                            directoriesCount += 1
-                        }
-                        totalSize += childNode.size
-                        children.append(childNode)
-                    } else {
-                        let fileSize = diskSize(of: values, at: itemURL)
-                        children.append(FileNode.file(name: itemURL.lastPathComponent, size: fileSize))
-                        totalSize += fileSize
-                        filesCount += 1
-                    }
-
-                    scannedCount += 1
-                    let now = CFAbsoluteTimeGetCurrent()
-                    if now - lastProgressUpdate >= progressInterval {
-                        lastProgressUpdate = now
-                        progressHandler(ScanProgress(filesScanned: scannedCount, currentPath: url.lastPathComponent))
-                    }
-                }
-
-                children.sort { $0.size > $1.size }
-                return FileNode.directory(name: name, children: children, size: totalSize, status: status)
-            }
-
+        let worker = Task.detached(priority: .userInitiated) { () -> ScanOutcome in
             // Validate the root up front so we can distinguish "root unreadable"
             // from "root readable but some descendants were skipped".
             let rootURL = URL(fileURLWithPath: rootPath)
             var isDir: ObjCBool = false
-            guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDir), isDir.boolValue else {
+            guard FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDir),
+                  isDir.boolValue else {
                 return .failed("Root path does not exist or is not a directory: \(rootPath)")
             }
 
-            let root = buildTree(at: rootURL, nameOverride: rootURL.path)
+            let builder = TreeBuilder(scanRoot: rootURL, progressHandler: progressHandler)
+            let root = builder.buildTree(startingAt: rootURL, name: rootURL.path)
 
             if Task.isCancelled { return .cancelled }
 
-            let result = DirectoryScanResult(
+            return .success(DirectoryScanResult(
                 root: root,
-                totalFiles: filesCount,
-                totalDirectories: directoriesCount,
+                totalFiles: builder.filesCount,
+                totalDirectories: builder.directoriesCount,
                 scanDuration: Date().timeIntervalSince(startTime),
                 scanDate: Date()
-            )
-            return .success(result)
-        }.value
+            ))
+        }
+        // A detached task does not inherit cancellation: forward it, so
+        // `cancel()` and root switches really stop the traversal.
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     // MARK: - Navigation
