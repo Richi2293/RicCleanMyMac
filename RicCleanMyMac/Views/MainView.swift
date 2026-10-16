@@ -2,15 +2,18 @@ import SwiftUI
 
 struct MainView: View {
     @StateObject private var cleanupService = CleanupService()
+    @StateObject private var directoryScanner = DirectoryScanner()
     @State private var selectedSection: NavigationSection? = .dashboard
 
     enum NavigationSection: String, CaseIterable {
         case dashboard = "Dashboard"
+        case diskAnalyzer = "Disk Analyzer"
         case cleanup = "Cleanup"
 
         var icon: String {
             switch self {
             case .dashboard: return "chart.bar.fill"
+            case .diskAnalyzer: return "internaldrive"
             case .cleanup: return "trash.fill"
             }
         }
@@ -29,6 +32,8 @@ struct MainView: View {
                 switch selectedSection {
                 case .cleanup:
                     CleanupView()
+                case .diskAnalyzer:
+                    DiskAnalyzerView()
                 case .dashboard, .none:
                     DashboardView()
                 }
@@ -36,5 +41,6 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .environmentObject(cleanupService)
+        .environmentObject(directoryScanner)
     }
 }
