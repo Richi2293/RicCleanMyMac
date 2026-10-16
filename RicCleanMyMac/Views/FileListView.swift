@@ -95,7 +95,6 @@ struct FileListRow: View {
             Spacer()
 
             sizeBar
-                .frame(width: 60)
 
             Text(sizeText)
                 .font(.caption)
@@ -111,6 +110,9 @@ struct FileListRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .accessibilityAction(named: "Open") {
+            if node.isDirectory, !isSkipped { onNavigate() }
+        }
         .onTapGesture {
             if case .skipped = node.status {
                 return
@@ -131,6 +133,8 @@ struct FileListRow: View {
                     .foregroundColor(isSelected ? .accentColor : .secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Select \(node.name)")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
         } else {
             switch node.status {
             case .readOnly:
@@ -157,6 +161,11 @@ struct FileListRow: View {
                     .help("Protected: this folder contains read-only or system items")
             }
         }
+    }
+
+    private var isSkipped: Bool {
+        if case .skipped = node.status { return true }
+        return false
     }
 
     private var nameColor: Color {
@@ -195,19 +204,19 @@ struct FileListRow: View {
         return node.formattedSize
     }
 
-    private var sizeBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.secondary.opacity(0.15))
-                    .frame(height: 6)
+    private static let sizeBarWidth: CGFloat = 60
 
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(barColor)
-                    .frame(width: geo.size.width * CGFloat(node.relativeSize), height: 6)
-            }
+    private var sizeBar: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.secondary.opacity(0.15))
+
+            RoundedRectangle(cornerRadius: 2)
+                .fill(barColor)
+                .frame(width: Self.sizeBarWidth * CGFloat(node.relativeSize))
         }
-        .frame(height: 6)
+        .frame(width: Self.sizeBarWidth, height: 6)
+        .accessibilityHidden(true)
     }
 
     private var barColor: Color {

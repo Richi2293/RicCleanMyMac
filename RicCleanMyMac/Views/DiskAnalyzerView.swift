@@ -332,6 +332,7 @@ struct DiskAnalyzerView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss deletion result")
         }
     }
 

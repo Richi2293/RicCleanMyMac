@@ -47,6 +47,7 @@ struct BreadcrumbBar: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .accessibilityLabel("Hidden folders in the path")
 
         chevronSeparator
 

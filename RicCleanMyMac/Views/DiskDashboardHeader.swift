@@ -177,6 +177,7 @@ struct DiskDashboardHeader: View {
                 .foregroundColor(.secondary)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "Collapse disk summary" : "Expand disk summary")
     }
 
     private func gaugeColor(for percentage: Double) -> Color {

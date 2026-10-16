@@ -3,12 +3,22 @@ import SwiftUI
 // MARK: - Data
 
 struct SunburstSegment: Identifiable {
-    let id = UUID()
     let node: FileNode
     let depth: Int
     let startAngle: Angle
     let endAngle: Angle
     let color: Color
+    /// Share of the folder shown at the center, from 0 to 1.
+    let shareOfCenter: Double
+
+    struct ID: Hashable {
+        let node: ObjectIdentifier
+        let depth: Int
+    }
+
+    /// Stable across rebuilds, so SwiftUI keeps the same views on navigation.
+    /// The synthetic "Other" node is new at each build, which is fine.
+    var id: ID { ID(node: ObjectIdentifier(node), depth: depth) }
 }
 
 // MARK: - Layout
@@ -59,7 +69,8 @@ enum SunburstLayout {
                     depth: depth,
                     startAngle: currentAngle,
                     endAngle: currentAngle + childSweep,
-                    color: childColor
+                    color: childColor,
+                    shareOfCenter: Double(child.size) / Double(root.size)
                 ))
 
                 if child.isDirectory {
@@ -83,7 +94,8 @@ enum SunburstLayout {
                         depth: depth,
                         startAngle: currentAngle,
                         endAngle: currentAngle + otherSweep,
-                        color: Color.gray.opacity(0.3)
+                        color: Color.gray.opacity(0.3),
+                        shareOfCenter: Double(otherSize) / Double(root.size)
                     ))
                 }
             }
@@ -129,15 +141,19 @@ struct SunburstChartView: View {
     let treeRevision: Int
     let onNavigate: (FileNode) -> Void
 
-    @State private var hoveredSegment: UUID?
+    @State private var hoveredSegment: SunburstSegment.ID?
     @State private var segments: [SunburstSegment] = []
 
-    private let ringWidth: CGFloat = 36
-    private let centerRadius: CGFloat = 50
+    /// Rings and center share the chart's radius: the center takes a bit
+    /// more than one ring, so the chart always fits the panel.
+    private static let ringCount: CGFloat = 3
+    private static let centerShare: CGFloat = 1.4
 
     var body: some View {
         GeometryReader { geo in
             let size = min(geo.size.width, geo.size.height)
+            let ringWidth = size / 2 / (Self.ringCount + Self.centerShare)
+            let centerRadius = ringWidth * Self.centerShare
 
             ZStack {
                 VStack(spacing: 2) {
@@ -180,6 +196,14 @@ struct SunburstChartView: View {
                         }
                     }
                     .help(tooltipText(for: segment))
+                    .accessibilityElement()
+                    .accessibilityLabel(tooltipText(for: segment))
+                    .accessibilityAddTraits(segment.node.isDirectory ? .isButton : [])
+                    .accessibilityAction {
+                        if segment.node.isDirectory {
+                            onNavigate(segment.node)
+                        }
+                    }
                 }
             }
             .frame(width: size, height: size)
@@ -198,7 +222,7 @@ struct SunburstChartView: View {
     }
 
     private func tooltipText(for segment: SunburstSegment) -> String {
-        let percentage = String(format: "%.1f%%", segment.node.relativeSize * 100)
+        let percentage = String(format: "%.1f%%", segment.shareOfCenter * 100)
         return "\(segment.node.name): \(segment.node.formattedSize) (\(percentage))"
     }
 }
